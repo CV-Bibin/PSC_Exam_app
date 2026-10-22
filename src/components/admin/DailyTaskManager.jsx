@@ -222,7 +222,7 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
             </div>
           )}
 
-          {aiPayload && (
+         {aiPayload && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-3 border-t border-slate-800 mt-2">
               <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 flex flex-col justify-between">
                 <div>
@@ -235,10 +235,26 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
                   </div>
                 )}
               </div>
+              
+              {/* UPDATED MIDDLE CARD: Daily vs Grand Exam Reserve */}
               <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 flex flex-col justify-between">
-                <h5 className="text-xs font-bold text-slate-300 flex items-center gap-1.5 mb-1.5"><Target size={14} className="text-rose-400" /> Verified MCQs</h5>
-                <p className="text-xl font-black text-white">{aiPayload.quizzes?.length || 0} <span className="text-xs font-normal text-slate-400">Questions Ready</span></p>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Target size={14} className="text-rose-400" />
+                  <h5 className="text-xs font-bold text-slate-300">MCQs & Grand Reserve</h5>
+                </div>
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Daily Practice:</span>
+                    <span className="font-bold text-white">{aiPayload.quizzes?.length || 0} Qs</span>
+                  </div>
+                  <div className="w-full h-px bg-slate-700"></div>
+                  <div className="flex justify-between">
+                    <span className="text-amber-400 font-semibold">Grand Reserve:</span>
+                    <span className="font-bold text-amber-400">{aiPayload.grand_exam_quizzes?.length || 0} Qs (+{aiPayload.grand_exam_traps?.length || 0} traps)</span>
+                  </div>
+                </div>
               </div>
+
               <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
                 <h5 className="text-xs font-bold text-slate-300 flex items-center gap-1.5 mb-1.5"><Gamepad2 size={14} className="text-sky-400" /> 4-Game Data Engine</h5>
                 <p className="text-[11px] text-slate-400 grid grid-cols-2 gap-1 mt-2">

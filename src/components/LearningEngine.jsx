@@ -31,6 +31,9 @@ const HighlightedText = ({ text, highlights, onRemoveHighlight }) => {
   );
 };
 
+// Clean up rogue markdown asterisks in simple strings (so they don't show up in quick revision lists)
+const cleanMD = (str) => typeof str === 'string' ? str.replace(/\*\*/g, '') : str;
+
 export default function LearningEngine({ mission, onComplete, onMemorize, onHighlight }) {
   const stepKey = `psc_mission_${mission?.dayNumber}_step`;
   const highlightsKey = `psc_mission_${mission?.dayNumber}_highlights`;
@@ -130,6 +133,26 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
     if (nextStep >= chapters.length) onComplete();
   };
 
+  // Custom styling map for ReactMarkdown to make the UI look Pro-Level without extra plugins
+  const markdownComponents = {
+    p: ({node, ...props}) => <p className="mb-5 leading-relaxed text-slate-200" {...props} />,
+    strong: ({node, ...props}) => <strong className="text-amber-300 font-bold bg-amber-950/20 px-1 rounded" {...props} />,
+    em: ({node, ...props}) => <em className="text-brand-300 italic" {...props} />,
+    ul: ({node, ...props}) => <ul className="list-disc pl-6 mb-6 space-y-3" {...props} />,
+    ol: ({node, ...props}) => <ol className="list-decimal pl-6 mb-6 space-y-3" {...props} />,
+    li: ({node, ...props}) => <li className="text-slate-200 marker:text-brand-500 pl-1" {...props} />,
+    h1: ({node, ...props}) => <h1 className="text-2xl font-black text-white mt-8 mb-4" {...props} />,
+    h2: ({node, ...props}) => <h2 className="text-xl font-bold text-white mt-8 mb-4 border-b border-slate-800 pb-2" {...props} />,
+    h3: ({node, ...props}) => <h3 className="text-lg font-bold text-white mt-6 mb-3" {...props} />,
+    blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-brand-500 pl-4 py-1 my-4 bg-slate-900/50 italic text-slate-300" {...props} />,
+    table: ({node, ...props}) => <div className="overflow-x-auto my-6 rounded-xl border border-slate-700 shadow-lg"><table className="w-full border-collapse" {...props} /></div>,
+    th: ({node, ...props}) => <th className="bg-slate-950 text-brand-400 p-4 border-b border-slate-700 text-left text-xs font-black uppercase tracking-wider" {...props} />,
+    td: ({node, ...props}) => <td className="p-4 border-b border-slate-800/50 text-sm bg-slate-900/40 text-slate-300" {...props} />,
+    code: ({node, inline, ...props}) => inline 
+      ? <code className="bg-slate-800 text-sky-300 px-1.5 py-0.5 rounded text-sm font-mono" {...props} />
+      : <code className="block bg-slate-950 text-sky-300 p-4 rounded-xl border border-slate-800 text-sm font-mono overflow-x-auto my-4" {...props} />
+  };
+
   return (
     <div className="p-6 md:p-10 bg-civil-dark/50 flex flex-col relative min-h-[60vh]">
       
@@ -157,20 +180,20 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
             <div className="p-4 bg-brand-950/30 border-b border-brand-500/20 flex justify-between items-start shrink-0 select-none">
               <div>
                 <span className="text-[10px] text-brand-400 font-bold uppercase tracking-widest flex items-center gap-1.5"><Bot size={12}/> AE Chettan Explains</span>
-                <p className="text-slate-300 text-sm mt-1 italic border-l-2 border-slate-700 pl-2">"{aiModal.query}"</p>
+                <p className="text-slate-300 text-sm mt-1 italic border-l-2 border-slate-700 pl-2 line-clamp-2">"{aiModal.query}"</p>
               </div>
               <button onClick={() => setAiModal({ isOpen: false, query: '', response: '', loading: false })} className="text-slate-500 hover:text-rose-400 transition p-1 bg-slate-800 rounded-lg"><X size={20}/></button>
             </div>
-            <div className="p-6 text-base text-slate-200 overflow-y-auto custom-scrollbar flex-1 leading-relaxed">
+            <div className="p-6 text-base overflow-y-auto custom-scrollbar flex-1">
               {aiModal.loading ? (
                 <div className="flex flex-col items-center justify-center space-y-3 py-10">
                   <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
                   <span className="text-xs text-brand-400 animate-pulse">Consulting AE Chettan...</span>
                 </div>
               ) : (
-                <div className="prose prose-invert prose-base max-w-none prose-headings:text-amber-100 prose-a:text-brand-400 prose-strong:text-brand-300 prose-ul:marker:text-brand-500">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiModal.response}</ReactMarkdown>
-                </div>
+                <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+                  {aiModal.response}
+                </ReactMarkdown>
               )}
             </div>
             {!aiModal.loading && (
@@ -197,11 +220,11 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
             <h3 className="text-3xl font-black text-white leading-tight">{currentChapter.heading}</h3>
           </div>
 
-          <div className="space-y-10 flex-1" onMouseUp={handleMouseUp}>
-            {/* THE FIX: Added whitespace-pre-wrap to this paragraph */}
-            <p className="text-xl text-slate-200 leading-loose whitespace-pre-wrap">
-              <HighlightedText text={currentChapter.content || currentChapter.core_concept} highlights={highlights} onRemoveHighlight={handleRemoveHighlight} />
-            </p>
+          <div className="space-y-10 flex-1 text-lg" onMouseUp={handleMouseUp}>
+            {/* 🚀 THE FIX: Render Main Content with beautifully styled ReactMarkdown */}
+            <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+              {currentChapter.content || currentChapter.core_concept || ''}
+            </ReactMarkdown>
             
             {currentChapter.key_data?.length > 0 && (
               <div className="bg-slate-950/80 p-8 rounded-2xl border border-slate-800/80 shadow-inner">
@@ -212,7 +235,8 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
                   {currentChapter.key_data.map((point, i) => (
                     <li key={i} className="text-lg text-slate-300 flex items-start gap-4 leading-relaxed whitespace-pre-wrap">
                       <span className="text-brand-500 mt-1 shrink-0 select-none">•</span>
-                      <span><HighlightedText text={point} highlights={highlights} onRemoveHighlight={handleRemoveHighlight} /></span>
+                      {/* Uses cleanMD to strip rogue asterisks from simple list items */}
+                      <span><HighlightedText text={cleanMD(point)} highlights={highlights} onRemoveHighlight={handleRemoveHighlight} /></span>
                     </li>
                   ))}
                 </ul>
@@ -225,7 +249,7 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
                 <div>
                   <h4 className="text-sm font-bold text-rose-400 uppercase tracking-widest mb-3 select-none">Common PSC Trap</h4>
                   <p className="text-lg text-rose-200/90 leading-relaxed whitespace-pre-wrap">
-                    <HighlightedText text={currentChapter.psc_trap} highlights={highlights} onRemoveHighlight={handleRemoveHighlight} />
+                    <HighlightedText text={cleanMD(currentChapter.psc_trap)} highlights={highlights} onRemoveHighlight={handleRemoveHighlight} />
                   </p>
                 </div>
               </div>
@@ -259,7 +283,9 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
               {quickRevision.map((point, idx) => (
                 <li key={idx} className="flex items-center gap-5 bg-slate-900/50 p-5 rounded-2xl border border-slate-700/50">
                   <div className="w-3 h-3 rounded-full bg-emerald-400 shrink-0"></div>
-                  <span className="text-lg text-slate-200 font-semibold leading-relaxed whitespace-pre-wrap"><HighlightedText text={point} highlights={highlights} onRemoveHighlight={handleRemoveHighlight} /></span>
+                  <span className="text-lg text-slate-200 font-semibold leading-relaxed whitespace-pre-wrap">
+                    <HighlightedText text={cleanMD(point)} highlights={highlights} onRemoveHighlight={handleRemoveHighlight} />
+                  </span>
                 </li>
               ))}
             </ul>
@@ -276,11 +302,13 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
                   <div key={idx} className={`p-6 rounded-2xl border text-lg ${note.type === 'ai_note' ? 'bg-slate-900 border-brand-500/30 shadow-inner' : 'bg-slate-900/50 border-slate-700'}`}>
                     {note.type === 'ai_note' && <span className="block text-sm text-brand-400 font-bold mb-4 uppercase tracking-widest"><Bot size={16} className="inline mr-2"/> AI Explanation</span>}
                     {note.type === 'ai_note' ? (
-                      <div className="prose prose-invert prose-lg max-w-none prose-headings:text-amber-100 prose-a:text-brand-400 prose-strong:text-brand-300 leading-relaxed">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{note.text}</ReactMarkdown>
-                      </div>
+                      <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+                        {note.text}
+                      </ReactMarkdown>
                     ) : (
-                      <span className="text-slate-300 whitespace-pre-wrap leading-relaxed"><HighlightedText text={note.text} highlights={highlights} onRemoveHighlight={handleRemoveHighlight} /></span>
+                      <span className="text-slate-300 whitespace-pre-wrap leading-relaxed">
+                        <HighlightedText text={cleanMD(note.text)} highlights={highlights} onRemoveHighlight={handleRemoveHighlight} />
+                      </span>
                     )}
                   </div>
                 ))}

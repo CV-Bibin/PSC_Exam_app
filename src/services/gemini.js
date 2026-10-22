@@ -11,41 +11,49 @@ const getRandomKey = () => {
   return apiKeys[Math.floor(Math.random() * apiKeys.length)];
 };
 
-// --- SMART ROUTER WITH JSON LOCK ---
-async function fetchWithRetry(contentPayload, isHeavyJson = false, maxRetries = 3) {
+// --- CASCADING FALLBACK ROUTER ---
+async function fetchWithRetry(contentPayload, isHeavyJson = false) {
+  // The exact priority order: Try 3.6 first, then cascade down to Flash-Lite models
+  const modelsToTry = [
+    'gemini-3.6-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite'
+  ];
+  
   let delay = 3000;
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+  for (let i = 0; i < modelsToTry.length; i++) {
+    const currentModel = modelsToTry[i];
+    
     try {
       const genAI = new GoogleGenerativeAI(getRandomKey());
-
-      // ✅ Using your requested model
+      console.log(`[Gemini Router] Attempting generation with: ${currentModel}`);
+      
       const model = genAI.getGenerativeModel({
-        model: "gemini-3.5-flash",
+        model: currentModel,
         generationConfig: isHeavyJson ? { responseMimeType: "application/json" } : {}
       });
 
       const result = await model.generateContent(contentPayload);
+      console.log(`[Gemini Router] Success using ${currentModel}!`);
       return result.response.text();
+
     } catch (error) {
-      console.error(`[Gemini Try ${attempt}] Error Detail:`, error);
+      console.error(`[Gemini Error on ${currentModel}]:`, error);
 
       const errorStr = error.message || error.toString();
-      const isRateLimited = errorStr.includes('429') || errorStr.includes('503');
-      const isNotFound = errorStr.includes('404');
+      // Catch Overloaded (503), Rate Limited (429), or Missing/Locked Models (404)
+      const isRetryable = errorStr.includes('429') || errorStr.includes('503') || errorStr.includes('404');
 
-      if (isNotFound) {
-        throw new Error("404 Model Not Found. Check your API key or model string.");
-      }
-
-      if (isRateLimited) {
-        if (attempt === maxRetries) {
-          throw new Error("All API keys are currently rate-limited (Error 429). Please wait 60 seconds and try again.");
+      if (isRetryable) {
+        if (i === modelsToTry.length - 1) {
+          throw new Error("All fallback models failed. Google's servers are currently saturated. Please wait a minute and try again.");
         }
-        console.warn(`[Attempt ${attempt}/${maxRetries}] API Limit hit. Switching keys & retrying in ${delay / 1000}s...`);
+        console.warn(`[Fallback Router] ${currentModel} failed/busy. Switching to next model in ${delay / 1000}s...`);
         await new Promise(res => setTimeout(res, delay));
-        delay *= 1.5;
+        delay *= 1.5; // Exponential backoff to give the network time to breathe
       } else {
+        // If it's a code error (like a bad prompt), throw it immediately
         throw error;
       }
     }
@@ -66,42 +74,47 @@ export const extractTextFromPPTX = async (file) => {
   return fullText;
 };
 
-// --- MASSIVE UPGRADE: Exhaustive Restructurer, Bullet Points & Grand Exam Reserve ---
 export const extractSyllabusData = async (fileData, isText = false) => {
-  const prompt = `You are an expert, highly rigorous Kerala PSC Civil Engineering Curriculum Compiler. 
-  
-  CRITICAL DIRECTIVES:
-  1. NOISE FILTER: Completely remove non-syllabus elements. Delete author names, publisher info, watermarks, index pages, page numbers, and irrelevant conversational text. ONLY process the core engineering subject matter.
-  2. EXHAUSTIVE RESTRUCTURING: DO NOT SUMMARIZE. DO NOT OMIT ANY INFORMATION. Preserve 100% of the factual data, numerical values, IS codes, formulas, dimensions, and definitions.
-  3. BULLET POINT FORMAT ONLY: Absolutely NO large paragraphs. You MUST break down all text, explanations, and definitions into easy-to-read bullet points. Use "\\n• " for each point.
-  4. GRAND EXAM RESERVE: Generate 3-5 highly difficult, completely unique MCQs and Traps specifically reserved for the "grand_exam" arrays. Do not duplicate these in the regular "quizzes" or "games" arrays.
-  5. INFINITE SLIDES: If the raw text is very long, generate AS MANY "study_material" objects (slides) as necessary to fit all the data. Do not compress points together to save space.
-  6. NO LATEX: DO NOT use LaTeX ($ or $$). Write formulas normally (e.g., A = pi * r^2).
-  
-  Generate a STRICT JSON object matching exactly this schema:
-  {
-    "title": "string (4-7 words indicating the main topic)",
-    "study_material": [
-      {
-        "heading": "string (Clear, specific heading)",
-        "content": "string (The detailed explanation formatted STRICTLY as a bulleted list using '\\n• '. DO NOT WRITE PARAGRAPHS. Keep all details intact.)",
-        "key_data": ["string (Extract EVERY single numerical value, IS code, dimension, and factual bullet point exactly as provided in the raw text)"],
-        "psc_trap": "string (Identify one confusing concept from this chunk where students might make a mistake)"
-      }
-    ],
-    "quick_revision": ["string (Write comprehensive one-liners for EVERY single fact mentioned in the raw text. DO NOT LEAVE ANY FACT BEHIND. Generate as many as needed.)"],
-    "missing_concepts": ["string (Note any major topics related to the heading that are clearly missing from this text)"],
-    "quizzes": [{"question": "string", "options": ["A","B","C","D"], "correct_answer": "string", "explanation": "string"}],
-    "games": {
-      "flashcards": [{"front": "string", "back": "string"}],
-      "match_pairs": [{"left": "string", "right": "string"}],
-      "spot_the_trap": [{"statement": "string", "is_true": boolean, "catch": "string"}],
-      "fill_in_the_blanks": [{"sentence": "string", "answer": "string", "hint": "string"}]
-    },
-    "grand_exam_quizzes": [{"question": "string", "options": ["A","B","C","D"], "correct_answer": "string", "explanation": "string"}],
-    "grand_exam_traps": [{"statement": "string", "is_true": boolean, "catch": "string"}],
-    "validity_check": "string (Confirm that 100% of facts were preserved, formatted as bullet points, and noise was filtered out)"
-  }`;
+  const prompt = `You are an elite, highly engaging Kerala PSC Civil Engineering Master Tutor and Coach. 
+Transform raw technical civil engineering text into an interactive, visually stunning, high-retention study guide.
+
+CRITICAL DIRECTIVES:
+1. ZERO FACT LOSS: Preserve 100% of factual data, numbers, IS codes, formulas, limits, tolerances, and definitions. 
+2. NO DRY BULLET DUMPS:
+   - For comparisons, ALWAYS use Markdown Tables (| Aspect | Plane | Geodetic |).
+   - Use bold inline Markdown (**keyword**) for immediate visual scanning.
+   - Use clean, structured sections: "### 💡 Core Intuition", "### 📊 Comparison Matrix", "### 📐 Field Formulas".
+3. EMOJIS & CARDS: Use professional civil engineering markers (🏗️, 📏, 🌐, ⚠️, 📌) to open major concepts.
+4. INFINITE SLIDES: Break long raw texts across multiple slide objects. Never crowd more than 2-3 focused concepts onto a single slide.
+5. NO LATEX: Write formulas with standard text/unicode (e.g., A = π × r², Δ = 18.2 km -> 0.01 m).
+6. STRICT MCQ ROUTING: 
+   - Place ONLY the exact questions extracted directly from the raw text into the "quizzes" array (for daily practice). 
+   - Generate 3 to 5 completely ORIGINAL, highly difficult questions and place them EXCLUSIVELY in the "grand_exam_quizzes" array (for monthly/mastery exams). DO NOT mix them.
+
+Generate a STRICT JSON object matching exactly this schema:
+{
+  "title": "string (4-7 words indicating the overall module topic)",
+  "study_material": [
+    {
+      "heading": "string (Punchy, professional title with an icon, e.g., '🌐 Primary Divisions')",
+      "content": "string (Full rich Markdown content with headers, Markdown tables where applicable, bold terms, and bulleted field rules. Use '\\n\\n' between paragraphs and tables. NEVER dump raw unformatted lines.)",
+      "key_data": ["string (Extract every specific numerical threshold, IS code, or parameter)"],
+      "psc_trap": "string (Clear trap alert with the exact trap trick Kerala PSC uses)"
+    }
+  ],
+  "quick_revision": ["string (One-liner memory hooks for every critical fact)"],
+  "missing_concepts": ["string (Notable PSC syllabus topics missing from the input text)"],
+  "quizzes": [{"question": "string", "options": ["A","B","C","D"], "correct_answer": "string", "explanation": "string (Extract and place ONLY the raw questions found in the text here. Do not add new ones here.)"}],
+  "games": {
+    "flashcards": [{"front": "string", "back": "string"}],
+    "match_pairs": [{"left": "string", "right": "string"}],
+    "spot_the_trap": [{"statement": "string", "is_true": boolean, "catch": "string"}],
+    "fill_in_the_blanks": [{"sentence": "string", "answer": "string", "hint": "string"}]
+  },
+  "grand_exam_quizzes": [{"question": "string", "options": ["A","B","C","D"], "correct_answer": "string", "explanation": "string (Generate 3-5 original, highly difficult questions here for the final mastery exam)"}],
+  "grand_exam_traps": [{"statement": "string", "is_true": boolean, "catch": "string (Generate 2-3 unique, original traps here for the final mastery exam)"}],
+  "validity_check": "string (Verified complete factual retention with interactive markdown presentation)"
+}`;
 
   const contentPayload = isText
     ? [prompt, fileData]
