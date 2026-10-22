@@ -4,7 +4,8 @@ import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 import { extractSyllabusData, extractTextFromPPTX } from '../../services/gemini';
 import { 
   Plus, Upload, Calendar, Sparkles, FileText, UploadCloud, 
-  ClipboardPaste, FileUp, BookOpen, Target, Gamepad2, Eye, X, AlertTriangle, CheckCircle2
+  ClipboardPaste, FileUp, BookOpen, Target, Gamepad2, Eye, X, AlertTriangle, CheckCircle2,
+  Image as ImageIcon // Added ImageIcon for the Art Studio UI
 } from 'lucide-react';
 
 export default function DailyTaskManager({ selectedCourse, selectedModule, setStatusMessage, globalNextDay }) {
@@ -27,6 +28,34 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
   // State for the Preview Modal
   const [previewTask, setPreviewTask] = useState(null);
 
+  // --- NEW: ART STUDIO STATE ---
+  const [slideImages, setSlideImages] = useState({}); // Stores { slideIndex: 'url_or_base64' }
+
+  // Resizes and compresses image to ensure it fits in Firestore's 1MB limit
+  const handleImageUpload = (index, file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 800; // Cap width to keep Base64 string small
+        const scaleSize = MAX_WIDTH / img.width;
+        canvas.width = MAX_WIDTH;
+        canvas.height = img.height * scaleSize;
+        
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        
+        // Compress to 60% quality JPEG
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+        setSlideImages(prev => ({ ...prev, [index]: compressedBase64 }));
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
   // 1. Sync the Day Number automatically when the global tracker changes
   useEffect(() => {
     if (globalNextDay) {
@@ -34,7 +63,7 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
     }
   }, [globalNextDay]);
 
-  // 2. THE BUG FIX: Only trigger resetForm if the actual IDs change, not on parent re-renders!
+  // 2. Only trigger resetForm if the actual IDs change, not on parent re-renders!
   useEffect(() => {
     if (selectedCourse?.courseId && selectedModule?.moduleNumber) {
       fetchDayTasks(selectedCourse.courseId, selectedModule.moduleNumber);
@@ -47,6 +76,7 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
     setPdfUrl('');
     setAiPayload(null);
     setPastedTextContent('');
+    setSlideImages({}); // Clear staged images
   };
 
   const fetchDayTasks = async (courseId, moduleNum) => {
@@ -127,6 +157,17 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
     setLoading(true);
     setStatusMessage('Saving curriculum to database...');
     try {
+      // --- NEW: INJECT STAGED IMAGES INTO THE PAYLOAD ---
+      const finalPayload = { ...aiPayload };
+      if (finalPayload.study_material) {
+        finalPayload.study_material = finalPayload.study_material.map((slide, idx) => {
+          if (slideImages[idx]) {
+            return { ...slide, image_url: slideImages[idx] };
+          }
+          return slide;
+        });
+      }
+
       const taskData = {
         courseId: selectedCourse.courseId,
         moduleNumber: selectedModule.moduleNumber,
@@ -134,7 +175,7 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
         dayNumber: Number(dayNumber),
         title: taskTitle.trim(),
         pdfUrl: pdfUrl.trim() || null,
-        curriculumData: aiPayload, 
+        curriculumData: finalPayload, // Use the updated payload with images
         createdAt: new Date().toISOString(),
         aiQuestionsStatus: 'generated'
       };
@@ -223,50 +264,115 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
           )}
 
          {aiPayload && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-3 border-t border-slate-800 mt-2">
-              <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 flex flex-col justify-between">
-                <div>
-                  <h5 className="text-xs font-bold text-slate-300 flex items-center gap-1.5 mb-1.5"><BookOpen size={14} className="text-brand-400" /> Deep-Dive Notes</h5>
-                  <p className="text-xl font-black text-white">{aiPayload.study_material?.length || 0} <span className="text-xs font-normal text-slate-400">Chapters</span></p>
-                </div>
-                {aiPayload.missing_concepts?.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-slate-700">
-                    <span className="text-[10px] font-bold text-amber-400 flex items-center gap-1"><Sparkles size={10} /> Added {aiPayload.missing_concepts.length} missing PSC concepts</span>
-                  </div>
-                )}
-              </div>
-              
-              {/* UPDATED MIDDLE CARD: Daily vs Grand Exam Reserve */}
-              <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 flex flex-col justify-between">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <Target size={14} className="text-rose-400" />
-                  <h5 className="text-xs font-bold text-slate-300">MCQs & Grand Reserve</h5>
-                </div>
-                <div className="space-y-1.5 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Daily Practice:</span>
-                    <span className="font-bold text-white">{aiPayload.quizzes?.length || 0} Qs</span>
-                  </div>
-                  <div className="w-full h-px bg-slate-700"></div>
-                  <div className="flex justify-between">
-                    <span className="text-amber-400 font-semibold">Grand Reserve:</span>
-                    <span className="font-bold text-amber-400">{aiPayload.grand_exam_quizzes?.length || 0} Qs (+{aiPayload.grand_exam_traps?.length || 0} traps)</span>
-                  </div>
-                </div>
-              </div>
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-3 border-t border-slate-800 mt-2">
+             <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 flex flex-col justify-between">
+               <div>
+                 <h5 className="text-xs font-bold text-slate-300 flex items-center gap-1.5 mb-1.5"><BookOpen size={14} className="text-brand-400" /> Deep-Dive Notes</h5>
+                 <p className="text-xl font-black text-white">{aiPayload.study_material?.length || 0} <span className="text-xs font-normal text-slate-400">Chapters</span></p>
+               </div>
+               {aiPayload.missing_concepts?.length > 0 && (
+                 <div className="mt-2 pt-2 border-t border-slate-700">
+                   <span className="text-[10px] font-bold text-amber-400 flex items-center gap-1"><Sparkles size={10} /> Added {aiPayload.missing_concepts.length} missing PSC concepts</span>
+                 </div>
+               )}
+             </div>
+             
+             {/* UPDATED MIDDLE CARD: Daily vs Grand Exam Reserve */}
+             <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 flex flex-col justify-between">
+               <div className="flex items-center gap-1.5 mb-2">
+                 <Target size={14} className="text-rose-400" />
+                 <h5 className="text-xs font-bold text-slate-300">MCQs & Grand Reserve</h5>
+               </div>
+               <div className="space-y-1.5 text-xs">
+                 <div className="flex justify-between">
+                   <span className="text-slate-400">Daily Practice:</span>
+                   <span className="font-bold text-white">{aiPayload.quizzes?.length || 0} Qs</span>
+                 </div>
+                 <div className="w-full h-px bg-slate-700"></div>
+                 <div className="flex justify-between">
+                   <span className="text-amber-400 font-semibold">Grand Reserve:</span>
+                   <span className="font-bold text-amber-400">{aiPayload.grand_exam_quizzes?.length || 0} Qs (+{aiPayload.grand_exam_traps?.length || 0} traps)</span>
+                 </div>
+               </div>
+             </div>
 
-              <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
-                <h5 className="text-xs font-bold text-slate-300 flex items-center gap-1.5 mb-1.5"><Gamepad2 size={14} className="text-sky-400" /> 4-Game Data Engine</h5>
-                <p className="text-[11px] text-slate-400 grid grid-cols-2 gap-1 mt-2">
-                  <span><strong className="text-white">{aiPayload.games?.flashcards?.length || 0}</strong> Cards</span>
-                  <span><strong className="text-white">{aiPayload.games?.match_pairs?.length || 0}</strong> Matches</span>
-                  <span><strong className="text-white">{aiPayload.games?.spot_the_trap?.length || 0}</strong> Traps</span>
-                  <span><strong className="text-white">{aiPayload.games?.fill_in_the_blanks?.length || 0}</strong> Blanks</span>
-                </p>
-              </div>
-            </div>
-          )}
+             <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
+               <h5 className="text-xs font-bold text-slate-300 flex items-center gap-1.5 mb-1.5"><Gamepad2 size={14} className="text-sky-400" /> 4-Game Data Engine</h5>
+               <p className="text-[11px] text-slate-400 grid grid-cols-2 gap-1 mt-2">
+                 <span><strong className="text-white">{aiPayload.games?.flashcards?.length || 0}</strong> Cards</span>
+                 <span><strong className="text-white">{aiPayload.games?.match_pairs?.length || 0}</strong> Matches</span>
+                 <span><strong className="text-white">{aiPayload.games?.spot_the_trap?.length || 0}</strong> Traps</span>
+                 <span><strong className="text-white">{aiPayload.games?.fill_in_the_blanks?.length || 0}</strong> Blanks</span>
+               </p>
+             </div>
+           </div>
+         )}
         </div>
+
+        {/* --- ADMIN ART STUDIO (IMAGE UPLOADER) --- */}
+        {aiPayload && aiPayload.study_material?.some(slide => slide.image_request?.is_needed) && (
+          <div className="mt-6 pt-6 border-t border-slate-700 space-y-4">
+            <h4 className="text-sm font-bold text-amber-400 flex items-center gap-2">
+              <ImageIcon size={18} /> Art Studio: AI Image Requests
+            </h4>
+            <p className="text-xs text-slate-400">The AI requested visual aids for the following slides. You can paste an external URL or upload a local file (it will be auto-compressed).</p>
+            
+            <div className="space-y-4 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
+              {aiPayload.study_material.map((slide, index) => {
+                if (!slide.image_request?.is_needed) return null;
+                
+                return (
+                  <div key={index} className={`p-4 rounded-xl border ${slideImages[index] ? 'bg-emerald-950/10 border-emerald-500/30' : 'bg-slate-900 border-amber-500/30'}`}>
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest">Slide {index + 1}: {slide.type}</span>
+                        <h5 className="font-bold text-slate-200 text-sm mt-0.5">{slide.heading}</h5>
+                      </div>
+                    </div>
+                    
+                    <div className="p-3 bg-slate-950 rounded-lg text-xs text-slate-400 border-l-2 border-amber-500 mb-4 italic">
+                      "{slide.image_request.art_prompt}"
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <input 
+                        type="text" 
+                        placeholder="Paste image URL (Imgur, Discord, etc.)"
+                        value={slideImages[index]?.startsWith('http') ? slideImages[index] : ''}
+                        onChange={(e) => setSlideImages(prev => ({ ...prev, [index]: e.target.value }))}
+                        className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:border-brand-500 outline-none"
+                      />
+                      <div className="text-slate-500 text-xs flex items-center justify-center font-bold px-2">OR</div>
+                      <label className="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600 rounded-lg px-4 py-2 text-xs font-bold cursor-pointer transition flex items-center justify-center whitespace-nowrap">
+                        <UploadCloud size={14} className="mr-1.5" /> Upload File
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(index, e.target.files[0])} />
+                      </label>
+                    </div>
+
+                    {/* 🚀 NEW: VISUAL THUMBNAIL PREVIEW */}
+                    {slideImages[index] && (
+                      <div className="mt-4 p-2 bg-slate-950/80 border border-emerald-500/30 rounded-lg flex items-center justify-between animate-in fade-in duration-300">
+                        <div className="flex items-center gap-3">
+                          <img src={slideImages[index]} alt="Preview" className="h-14 w-24 object-cover rounded-md border border-slate-700" />
+                          <span className="text-xs text-emerald-400 font-bold flex items-center gap-1.5">
+                            <CheckCircle2 size={14} /> Image Ready to Save
+                          </span>
+                        </div>
+                        <button 
+                          type="button" 
+                          onClick={() => setSlideImages(prev => { const newImgs = {...prev}; delete newImgs[index]; return newImgs; })} 
+                          className="text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 px-3 py-1.5 rounded-lg text-xs font-bold transition"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>

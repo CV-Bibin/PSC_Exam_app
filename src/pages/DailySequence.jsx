@@ -243,6 +243,7 @@ export default function DailySequence() {
             onComplete={() => setDrillsUnlocked(true)} 
             onMemorize={handleMemorizeTopic}
             onHighlight={handleHighlightSentence}
+            onRestart={() => setDrillsUnlocked(false)}
           />
         </div>
 
