@@ -7,6 +7,8 @@ import {
   BookmarkPlus, Bot, X, Bookmark, ChevronRight, BookOpen, 
   Calculator, LayoutGrid, HelpCircle, Image as ImageIcon, Lightbulb, Gamepad2, Layers
 } from 'lucide-react';
+import 'katex/dist/katex.min.css';
+import { BlockMath } from 'react-katex';
 
 // --- UTILITY COMPONENTS & FUNCTIONS ---
 
@@ -139,26 +141,34 @@ const SlideRenderer = ({
         <div className="space-y-6">
           <ImageBlock />
           <div className="bg-amber-950/20 border border-amber-500/30 rounded-3xl p-8 md:p-10 flex flex-col md:flex-row items-center gap-10 shadow-lg">
-            <div className="flex-1 w-full text-center bg-slate-900 py-10 px-6 rounded-3xl border border-amber-500/20 shadow-inner relative overflow-hidden">
+            
+            <div className="flex-1 w-full text-center bg-slate-900 py-8 px-4 rounded-3xl border border-amber-500/20 shadow-inner relative overflow-hidden flex flex-col justify-center min-h-[150px]">
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent opacity-50"></div>
-              <span className="font-serif text-4xl md:text-5xl text-amber-400 font-bold tracking-wider">{data.equation}</span>
+              
+              {/* FIXED: Reduced font scale to prevent scrollbars */}
+              <div className="text-amber-400 overflow-x-auto custom-scrollbar w-full text-sm sm:text-base lg:text-lg px-2">
+                <BlockMath math={data.equation || ''} />
+              </div>
+              
             </div>
+
             <div className="flex-1 w-full space-y-4">
               <h5 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
                 <Calculator size={16} /> Variables
               </h5>
               {data.variables?.map((v, i) => (
-                <div key={i} className="flex items-center gap-3 text-slate-200 text-lg bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+                <div key={i} className="flex items-center gap-3 text-slate-200 text-base bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
                   <HighlightedText text={cleanMD(v)} highlights={highlights} onRemoveHighlight={onRemoveHighlight} />
                 </div>
               ))}
             </div>
+            
           </div>
-          {data.explanation && <p className="text-slate-300 text-lg text-center mt-6 italic px-4">{data.explanation}</p>}
+          {data.explanation && <p className="text-slate-300 text-base md:text-lg text-center mt-6 italic px-4">{data.explanation}</p>}
         </div>
       );
-
+      
    case 'takeaways':
       return (
         <div className="space-y-6">
