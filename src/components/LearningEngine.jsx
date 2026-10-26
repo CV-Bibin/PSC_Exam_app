@@ -168,7 +168,7 @@ const SlideRenderer = ({
           {data.explanation && <p className="text-slate-300 text-base md:text-lg text-center mt-6 italic px-4">{data.explanation}</p>}
         </div>
       );
-      
+
    case 'takeaways':
       return (
         <div className="space-y-6">
@@ -452,17 +452,23 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
     setSelectionMenu(null);
   };
 
-  const handleAskAI = async () => {
+const handleAskAI = async () => {
     const queryText = selectionMenu.text;
     window.getSelection().removeAllRanges();
     setSelectionMenu(null);
-    setAiModal({ isOpen: true, query: queryText, response: '', loading: true });
+    
+    // 1. Set loading to true, but keep isOpen FALSE so it runs in the background
+    setAiModal({ isOpen: false, query: queryText, response: '', loading: true });
+    
     try {
       const context = `Module: ${mission.title}. Explain this specific point clearly for a PSC exam student in simple terms.`;
       const aiResponse = await askAITutor(queryText, context);
-      setAiModal(prev => ({ ...prev, response: aiResponse, loading: false }));
+      
+      // 2. Once the AI answers, pop open the modal
+      setAiModal({ isOpen: true, query: queryText, response: aiResponse, loading: false });
     } catch (error) {
-      setAiModal(prev => ({ ...prev, response: `⚠️ ${error.message}`, loading: false }));
+      // 3. If it fails, pop open the modal to show the error
+      setAiModal({ isOpen: true, query: queryText, response: `⚠️ ${error.message}`, loading: false });
     }
   };
 
@@ -496,6 +502,17 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
           <button onClick={handleAskAI} className="px-2 py-1 hover:bg-slate-700 text-brand-400 rounded transition flex items-center gap-1 text-xs font-bold">
             <Bot size={14} /> Ask AI
           </button>
+        </div>
+      )}
+      \
+      {/* 🚀 NEW: Background Loading Indicator Toast */}
+      {aiModal.loading && !aiModal.isOpen && (
+        <div className="fixed bottom-8 right-8 z-50 bg-slate-900 border border-brand-500/40 p-4 rounded-2xl shadow-[0_10px_40px_rgba(245,158,11,0.2)] flex items-center gap-4 animate-in slide-in-from-bottom-8">
+          <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin shrink-0"></div>
+          <div>
+            <p className="text-xs font-bold text-brand-400 uppercase tracking-widest mb-0.5">AE Chettan is thinking...</p>
+            <p className="text-sm text-slate-300 max-w-[200px] truncate">"{aiModal.query}"</p>
+          </div>
         </div>
       )}
 
