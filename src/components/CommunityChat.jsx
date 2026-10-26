@@ -2,30 +2,34 @@ import { useState, useEffect, useRef } from 'react';
 import { db } from '../services/firebase';
 import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { askAITutor } from '../services/gemini';
+import { useAuth } from '../context/AuthContext'; // 🚀 Added to verify Admin status
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, MessageSquare, Clock, AlertCircle, Bot, BookmarkPlus, Edit2, Trash2, X, Check, CheckCircle2 } from 'lucide-react';
+import { Send, MessageSquare, Clock, AlertCircle, Bot, BookmarkPlus, Edit2, Trash2, X, Check, CheckCircle2, Languages, Loader2, Highlighter } from 'lucide-react';
 
 export default function CommunityChat() {
+  const { isAdmin } = useAuth(); // 🚀 Pulls admin power from context
+
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isAITyping, setIsAITyping] = useState(false);
   
-  // Custom Alert / Toast State
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
-  
-  // AI Mention Auto-Suggest State
   const [showMentionPopup, setShowMentionPopup] = useState(false);
 
-  // Edit State
   const [editingMsgId, setEditingMsgId] = useState(null);
   const [editContent, setEditContent] = useState('');
+  
+  const [translatingId, setTranslatingId] = useState(null);
+  const [viewMode, setViewMode] = useState({}); 
+
+  // 🚀 Text Selection State for Highlighting
+  const [selectionMenu, setSelectionMenu] = useState(null);
 
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // Generate a mock user ID and name
   const [localUser] = useState(() => {
     const saved = localStorage.getItem('psc_user_profile');
     if (saved) return JSON.parse(saved);
@@ -34,26 +38,18 @@ export default function CommunityChat() {
     return newProfile;
   });
 
-  // Listen to Firestore in Real-Time
   useEffect(() => {
     const q = query(collection(db, 'global_discussions'), orderBy('timestamp', 'asc'), limit(150));
-    
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setMessages(msgs);
       scrollToBottom();
     });
-
     return () => unsubscribe();
   }, []);
 
   const scrollToBottom = () => {
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, 150);
+    setTimeout(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, 150);
   };
 
   const triggerToast = (message, type = 'success') => {
@@ -61,15 +57,65 @@ export default function CommunityChat() {
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000);
   };
 
-  // --- INPUT HANDLER FOR AUTO-SUGGEST ---
+  // --- 🚀 NEW: CHAT HIGHLIGHTING LOGIC ---
+  const handleMouseUp = (e) => {
+    const selection = window.getSelection();
+    const text = selection.toString().trim();
+    if (text.length > 0) {
+      setSelectionMenu({ text, x: e.clientX, y: e.clientY - 50 });
+    } else {
+      setSelectionMenu(null);
+    }
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (selectionMenu && !e.target.closest('#chat-floating-menu')) setSelectionMenu(null);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [selectionMenu]);
+
+  const handleAddHighlight = (colorClass) => {
+    if (selectionMenu) {
+      const vaultKey = 'psc_fav_highlights';
+      const savedHighlights = JSON.parse(localStorage.getItem(vaultKey) || '[]');
+      
+      if (!savedHighlights.find(h => h.text === selectionMenu.text)) {
+        const newHighlight = { 
+          id: Date.now().toString(), 
+          text: selectionMenu.text, 
+          colorClass, 
+          sourceTopic: 'Global Chat Room' 
+        };
+        localStorage.setItem(vaultKey, JSON.stringify([newHighlight, ...savedHighlights]));
+        triggerToast("Saved to Highlights!");
+      } else {
+        triggerToast("Already highlighted!", "error");
+      }
+    }
+    window.getSelection().removeAllRanges();
+    setSelectionMenu(null);
+  };
+
+  const handleSaveToVault = (text, author) => {
+    const vaultKey = 'psc_fav_memorized'; 
+    const savedVault = JSON.parse(localStorage.getItem(vaultKey) || '[]');
+    if (!savedVault.find(item => item.content === text)) {
+      const newNote = { id: Date.now().toString(), heading: `Community Insight from ${author}`, content: text };
+      localStorage.setItem(vaultKey, JSON.stringify([newNote, ...savedVault]));
+      triggerToast("Insight saved to your Vault!");
+    } else {
+      triggerToast("Already saved in your Vault.", "error");
+    }
+  };
+
+  // --- INPUT & MESSAGE LOGIC ---
   const handleInputChange = (e) => {
     const val = e.target.value;
     setNewMessage(val);
-    
-    // Check if the user is typing an @ mention
     const words = val.split(' ');
     const lastWord = words[words.length - 1];
-    
     if (lastWord === '@' || lastWord.toLowerCase() === '@a' || lastWord.toLowerCase() === '@ae') {
       setShowMentionPopup(true);
     } else {
@@ -79,14 +125,13 @@ export default function CommunityChat() {
 
   const insertMention = () => {
     const words = newMessage.split(' ');
-    words.pop(); // Remove the incomplete "@" text
+    words.pop();
     const newText = words.join(' ') + (words.length > 0 ? ' ' : '') + '@AE Chettan ';
     setNewMessage(newText);
     setShowMentionPopup(false);
     textareaRef.current?.focus();
   };
 
-  // --- SEND MESSAGE & TRIGGER AI ---
   const handleSendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
@@ -109,8 +154,7 @@ export default function CommunityChat() {
       if (messageText.toLowerCase().includes('@ae chettan')) {
         setIsAITyping(true);
         scrollToBottom();
-        
-        const context = "You are AE Chettan, an expert Kerala PSC Civil Engineering tutor in a live community chat room. Answer the student's doubt accurately and concisely. Use formatting (bullet points, bold text) for readability.";
+        const context = "You are AE Chettan, an expert Kerala PSC Civil Engineering tutor in a live community chat room. Answer the student's doubt accurately and concisely. Use formatting (bullet points, bold text, newlines) for readability. DO NOT use Malayalam yet, answer in English.";
         const aiResponse = await askAITutor(messageText, context);
         
         await addDoc(collection(db, 'global_discussions'), {
@@ -124,7 +168,6 @@ export default function CommunityChat() {
         scrollToBottom();
       }
     } catch (error) {
-      console.error("Chat Error: ", error);
       setIsAITyping(false);
       triggerToast("Error sending message", "error");
     } finally {
@@ -132,19 +175,10 @@ export default function CommunityChat() {
     }
   };
 
-  // --- EDIT MESSAGE ---
-  const initiateEdit = (msg) => {
-    setEditingMsgId(msg.id);
-    setEditContent(msg.text);
-  };
-
   const handleUpdateMessage = async (id) => {
     if (!editContent.trim()) return;
     try {
-      await updateDoc(doc(db, 'global_discussions', id), {
-        text: editContent.trim(),
-        isEdited: true
-      });
+      await updateDoc(doc(db, 'global_discussions', id), { text: editContent.trim(), isEdited: true });
       setEditingMsgId(null);
       setEditContent('');
       triggerToast("Message updated");
@@ -153,7 +187,6 @@ export default function CommunityChat() {
     }
   };
 
-  // --- DELETE MESSAGE ---
   const handleDeleteMessage = async (id) => {
     if (window.confirm("Delete this message permanently?")) {
       try {
@@ -165,22 +198,35 @@ export default function CommunityChat() {
     }
   };
 
-  // --- SAVE TO GLOBAL VAULT (Integrates with existing Favorites) ---
-  const handleSaveToVault = (text, author) => {
-    const vaultKey = 'psc_fav_memorized'; // Syncs with your actual Favorites page
-    const savedVault = JSON.parse(localStorage.getItem(vaultKey) || '[]');
-    
-    // Check for duplicates
-    if (!savedVault.find(item => item.content === text)) {
-      const newNote = { 
-        id: Date.now().toString(), 
-        heading: `Community Insight from ${author}`, 
-        content: text 
-      };
-      localStorage.setItem(vaultKey, JSON.stringify([newNote, ...savedVault]));
-      triggerToast("Insight saved to your Vault!");
-    } else {
-      triggerToast("Already saved in your Vault.", "error");
+  const handleTranslateToManglish = async (msg) => {
+    if (msg.manglishText) {
+      setViewMode(prev => ({ ...prev, [msg.id]: prev[msg.id] === 'ml' ? 'en' : 'ml' }));
+      return;
+    }
+
+    setTranslatingId(msg.id);
+    try {
+      const promptContext = `
+        Translate the following civil engineering explanation into casual, smart Manglish (Malayalam language written entirely in the English alphabet). 
+        STRICT RULES:
+        1. NO TAMIL. Do NOT use Tamil vocabulary. 
+        2. NO TAMIL SCRIPT. Use ONLY the English alphabet.
+        3. CRITICAL: Preserve all Markdown formatting exactly. Keep bullet points (*), newlines, and bold text (**).
+        4. Keep technical engineering terms in English.
+        5. Use a friendly tutor tone. 
+        
+        Here is the text to translate:
+        \n\n${msg.text}
+      `;
+      const manglishTranslation = await askAITutor(promptContext, "You are an expert Kerala PSC translator strictly using Manglish.");
+      
+      await updateDoc(doc(db, 'global_discussions', msg.id), { manglishText: manglishTranslation });
+      setViewMode(prev => ({ ...prev, [msg.id]: 'ml' }));
+      triggerToast("Translated to strict Manglish!");
+    } catch (error) {
+      triggerToast("Translation failed", "error");
+    } finally {
+      setTranslatingId(null);
     }
   };
 
@@ -192,7 +238,21 @@ export default function CommunityChat() {
   return (
     <div className="flex flex-col h-[calc(100vh-6rem)] max-w-5xl mx-auto bg-civil-card border border-civil-border rounded-[2rem] shadow-2xl overflow-hidden animate-in fade-in duration-300 relative">
       
-      {/* 🚀 CUSTOM ALERT / TOAST */}
+      {/* 🚀 HIGHLIGHT FLOATING MENU */}
+      {selectionMenu && (
+        <div id="chat-floating-menu" className="fixed z-50 flex items-center gap-2 p-1.5 bg-slate-800 border border-slate-600 rounded-lg shadow-2xl animate-in zoom-in-95 duration-100" style={{ top: selectionMenu.y, left: selectionMenu.x, transform: 'translateX(-50%)' }}>
+          <div className="flex items-center gap-2 px-2 border-r border-slate-700 pr-3">
+            <Highlighter size={14} className="text-slate-400 mr-1" />
+            <button onClick={() => handleAddHighlight('bg-amber-500/40 text-amber-50')} className="w-5 h-5 rounded-full bg-amber-500 hover:scale-110 transition shadow"></button>
+            <button onClick={() => handleAddHighlight('bg-emerald-500/40 text-emerald-50')} className="w-5 h-5 rounded-full bg-emerald-500 hover:scale-110 transition shadow"></button>
+            <button onClick={() => handleAddHighlight('bg-pink-500/40 text-pink-50')} className="w-5 h-5 rounded-full bg-pink-500 hover:scale-110 transition shadow"></button>
+          </div>
+          <button onClick={() => handleSaveToVault(selectionMenu.text, "Chat Selection")} className="px-2 py-1 hover:bg-slate-700 text-emerald-400 rounded transition flex items-center gap-1 text-xs font-bold">
+            <BookmarkPlus size={14} /> Memorize
+          </button>
+        </div>
+      )}
+
       {toast.show && (
         <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-top-4 fade-in duration-300">
           <div className={`px-5 py-3 rounded-full flex items-center gap-3 shadow-2xl border ${
@@ -204,7 +264,6 @@ export default function CommunityChat() {
         </div>
       )}
 
-      {/* Chat Header */}
       <div className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between z-10 shadow-sm shrink-0 gap-4">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 bg-brand-500/20 text-brand-400 rounded-xl flex items-center justify-center border border-brand-500/30 shrink-0">
@@ -222,8 +281,7 @@ export default function CommunityChat() {
         </div>
       </div>
 
-      {/* Messages Window */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 bg-slate-900/30 custom-scrollbar relative">
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 bg-slate-900/30 custom-scrollbar relative" onMouseUp={handleMouseUp}>
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-slate-500 space-y-4">
             <MessageSquare size={48} className="opacity-20" />
@@ -234,6 +292,9 @@ export default function CommunityChat() {
             const isMe = msg.userId === localUser.id;
             const isAI = msg.isAI;
             const showHeader = index === 0 || messages[index - 1].userId !== msg.userId;
+            
+            const isManglishView = viewMode[msg.id] === 'ml';
+            const displayText = isManglishView && msg.manglishText ? msg.manglishText : msg.text;
 
             return (
               <div key={msg.id} className={`flex flex-col group ${isMe ? 'items-end' : 'items-start'}`}>
@@ -248,14 +309,13 @@ export default function CommunityChat() {
                   </div>
                 )}
                 
-                <div className={`relative flex items-center gap-2 max-w-[90%] md:max-w-[75%] ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                <div className={`relative flex items-center gap-2 max-w-[95%] md:max-w-[85%] ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
                   
-                  {/* The Message Bubble */}
-                  <div className={`p-4 rounded-2xl text-sm md:text-base leading-relaxed ${
+                  <div className={`p-5 rounded-3xl text-sm md:text-base ${
                     isMe 
                       ? 'bg-brand-600 text-slate-950 font-medium rounded-tr-sm shadow-[0_5px_15px_rgba(245,158,11,0.2)]' 
                       : isAI
-                      ? 'bg-slate-950 border border-brand-500/30 text-slate-200 rounded-tl-sm shadow-lg'
+                      ? 'bg-slate-950 border border-brand-500/30 text-slate-200 rounded-tl-sm shadow-xl'
                       : 'bg-slate-800 text-slate-200 border border-slate-700 rounded-tl-sm shadow-md'
                   }`}>
                     {editingMsgId === msg.id ? (
@@ -272,62 +332,58 @@ export default function CommunityChat() {
                         </div>
                       </div>
                     ) : (
-                      <div className={`prose prose-sm max-w-none ${isMe ? 'prose-p:text-slate-950 prose-strong:text-slate-900' : 'prose-invert'}`}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                      <div className={`prose max-w-none prose-p:leading-relaxed prose-ul:list-disc prose-ul:pl-5 prose-li:mb-1 prose-strong:text-brand-400 ${isMe ? 'prose-p:text-slate-950 prose-strong:text-slate-900' : 'prose-invert text-slate-300'}`}>
+                        {isManglishView && <span className="inline-block mb-3 text-[10px] font-black tracking-widest text-sky-400 bg-sky-500/10 border border-sky-500/20 px-2 py-1 rounded uppercase">Manglish Translation</span>}
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText}</ReactMarkdown>
                       </div>
                     )}
                   </div>
 
-                  {/* Hover Actions Menu */}
                   {!editingMsgId && (
-                    <div className={`opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 ${isMe ? 'flex-row-reverse' : ''}`}>
-                      <button onClick={() => handleSaveToVault(msg.text, msg.userName)} title="Save to Vault" className="p-2 text-slate-400 hover:text-emerald-400 bg-slate-900 border border-slate-800 rounded-full shadow-sm transition"><BookmarkPlus size={14} /></button>
-                      {isMe && (
-                        <>
-                          <button onClick={() => initiateEdit(msg)} title="Edit Message" className="p-2 text-slate-400 hover:text-sky-400 bg-slate-900 border border-slate-800 rounded-full shadow-sm transition"><Edit2 size={14} /></button>
-                          <button onClick={() => handleDeleteMessage(msg.id)} title="Delete Message" className="p-2 text-slate-400 hover:text-rose-400 bg-slate-900 border border-slate-800 rounded-full shadow-sm transition"><Trash2 size={14} /></button>
-                        </>
+                    <div className={`opacity-0 group-hover:opacity-100 transition-opacity flex flex-col md:flex-row items-center gap-1 ${isMe ? 'flex-row-reverse' : ''}`}>
+                      <button onClick={() => handleSaveToVault(displayText, msg.userName)} title="Save to Vault" className="p-2 text-slate-400 hover:text-emerald-400 bg-slate-900 border border-slate-800 rounded-full shadow-sm transition"><BookmarkPlus size={14} /></button>
+                      
+                      {isAI && (
+                        <button 
+                          onClick={() => handleTranslateToManglish(msg)} 
+                          title={isManglishView ? "Switch to English" : "Read in Smart Manglish"} 
+                          className={`p-2 bg-slate-900 border border-slate-800 rounded-full shadow-sm transition ${isManglishView ? 'text-sky-400' : 'text-slate-400 hover:text-sky-400'}`}
+                        >
+                          {translatingId === msg.id ? <Loader2 size={14} className="animate-spin" /> : <Languages size={14} />}
+                        </button>
                       )}
+
+                      {/* 🚀 ADMIN OVERRIDE FOR DELETE */}
+                      {isMe && <button onClick={() => initiateEdit(msg)} title="Edit Message" className="p-2 text-slate-400 hover:text-sky-400 bg-slate-900 border border-slate-800 rounded-full shadow-sm transition"><Edit2 size={14} /></button>}
+                      {(isMe || isAdmin) && <button onClick={() => handleDeleteMessage(msg.id)} title="Delete Message" className="p-2 text-slate-400 hover:text-rose-400 bg-slate-900 border border-slate-800 rounded-full shadow-sm transition"><Trash2 size={14} /></button>}
                     </div>
                   )}
-
                 </div>
               </div>
             );
           })
         )}
         
-        {/* AI Typing Indicator */}
         {isAITyping && (
           <div className="flex flex-col items-start animate-in slide-in-from-bottom-2">
              <div className="flex items-center gap-2 mb-1.5 px-1">
-                <span className="text-xs font-black uppercase tracking-wider flex items-center gap-1 text-amber-400">
-                  <Bot size={12} /> AE Chettan
-                </span>
+                <span className="text-xs font-black uppercase tracking-wider flex items-center gap-1 text-amber-400"><Bot size={12} /> AE Chettan</span>
               </div>
-             <div className="bg-slate-950 border border-brand-500/30 p-4 rounded-2xl rounded-tl-sm shadow-lg flex gap-2 items-center">
-                <div className="w-2 h-2 bg-brand-500 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-brand-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
-                <div className="w-2 h-2 bg-brand-500 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></div>
+             <div className="bg-slate-950 border border-brand-500/30 p-5 rounded-3xl rounded-tl-sm shadow-lg flex gap-2 items-center">
+                <div className="w-2.5 h-2.5 bg-brand-500 rounded-full animate-bounce"></div>
+                <div className="w-2.5 h-2.5 bg-brand-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                <div className="w-2.5 h-2.5 bg-brand-500 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></div>
              </div>
           </div>
         )}
         <div ref={messagesEndRef} className="h-4" />
       </div>
 
-      {/* Input Area */}
       <div className="bg-slate-900 border-t border-slate-800 p-3 md:p-4 shrink-0 relative">
-        
-        {/* 🚀 NEW: @AE Chettan Mention Popup */}
         {showMentionPopup && (
           <div className="absolute bottom-[calc(100%+10px)] left-4 bg-slate-800 border border-brand-500/40 p-2 rounded-xl shadow-2xl animate-in slide-in-from-bottom-2 z-50">
-            <button 
-              onClick={insertMention}
-              className="flex items-center gap-3 w-full p-2 hover:bg-slate-700 rounded-lg text-left transition"
-            >
-              <div className="w-8 h-8 rounded-full bg-brand-500/20 text-brand-400 flex items-center justify-center shrink-0">
-                <Bot size={16} />
-              </div>
+            <button onClick={insertMention} className="flex items-center gap-3 w-full p-2 hover:bg-slate-700 rounded-lg text-left transition">
+              <div className="w-8 h-8 rounded-full bg-brand-500/20 text-brand-400 flex items-center justify-center shrink-0"><Bot size={16} /></div>
               <div>
                 <p className="text-sm font-bold text-white leading-none mb-1">AE Chettan</p>
                 <p className="text-xs text-slate-400 leading-none">Ask the AI Tutor a question</p>
@@ -341,22 +397,13 @@ export default function CommunityChat() {
             ref={textareaRef}
             value={newMessage}
             onChange={handleInputChange}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSendMessage(e);
-              }
-            }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(e); } }}
             placeholder="Ask a doubt... Type @ for AI"
             className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 md:px-5 md:py-4 text-white focus:border-brand-500 outline-none transition shadow-inner placeholder:text-slate-500 resize-none min-h-[50px] max-h-[150px] custom-scrollbar"
             disabled={isSending}
             rows={Math.min(4, newMessage.split('\n').length || 1)}
           />
-          <button
-            type="submit"
-            disabled={!newMessage.trim() || isSending}
-            className="h-full min-h-[50px] md:min-h-[56px] bg-brand-500 hover:bg-brand-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 px-5 md:px-6 rounded-xl font-black transition active:scale-95 flex items-center justify-center shadow-lg shrink-0"
-          >
+          <button type="submit" disabled={!newMessage.trim() || isSending} className="h-full min-h-[50px] md:min-h-[56px] bg-brand-500 hover:bg-brand-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 px-5 md:px-6 rounded-xl font-black transition active:scale-95 flex items-center justify-center shadow-lg shrink-0">
             {isSending ? <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"></div> : <Send size={20} />}
           </button>
         </form>
