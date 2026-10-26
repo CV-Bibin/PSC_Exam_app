@@ -4,7 +4,7 @@ import { db } from '../../services/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { 
   Compass, Flame, Award, Moon, Sun, LayoutDashboard, Activity, Target, 
-  Bot, Bookmark, BrainCircuit, LogOut, ShieldAlert, FastForward, Swords
+  Bot,MessageSquare, Bookmark, BrainCircuit, LogOut, ShieldAlert, FastForward, Swords
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -116,7 +116,20 @@ export default function Layout() {
           {/* EXAM ARENA TAB */}
           <NavItem to="/arena" icon={<Swords size={16} />} label="Exam Arena" badge={unattemptedExams} />
           
-          <NavItem to="/tutor" icon={<Bot size={16} />} label="AI Tutor" />
+          {/* <NavItem to="/tutor" icon={<Bot size={16} />} label="AI Tutor" /> */}
+          <NavLink 
+  to="/discuss" 
+  className={({ isActive }) => 
+    `flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${
+      isActive 
+        ? 'bg-brand-500 text-slate-950 shadow-[0_0_15px_rgba(245,158,11,0.3)]' 
+        : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+    }`
+  }
+>
+  <MessageSquare size={20} />
+  <span>Live Discussion</span>
+</NavLink>
           
           {/* FAVORITES/VAULT TAB */}
           <NavItem to="/vault" icon={<Bookmark size={16} />} label="My Favorites" />

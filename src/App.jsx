@@ -10,6 +10,7 @@ import MistakeLog from './pages/MistakeLog';
 import DailyRevision from './pages/DailyRevision';
 import Favorites from './pages/Favorites';
 import ExamArena from './pages/ExamArena';
+import CommunityChat from './components/CommunityChat';
 
 // 🚀 IMPORT THE NEW ACTIVE EXAM CATCHER
 // Note: Adjust the path if you saved ActiveExam.jsx inside '/pages' instead of '/components'
@@ -68,7 +69,10 @@ export default function App() {
         {/* Memory & AI Tools */}
         <Route path="tutor" element={<AITutor />} />
         <Route path="mistakes" element={<MistakeLog />} />
-        
+
+        {/* 🚀 NEW: Community Discussion Route */}
+        <Route path="discuss" element={<CommunityChat />} />
+
         {/* Dedicated Admin Route */}
         <Route path="admin" element={
           <AdminRoute>

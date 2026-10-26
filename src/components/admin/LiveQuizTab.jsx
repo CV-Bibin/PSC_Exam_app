@@ -201,8 +201,35 @@ export default function LiveQuizTab() {
 
         {inputMode === 'bulk' && (
           <div className="space-y-4 animate-in fade-in duration-300">
-            <textarea value={bulkJson} onChange={e => setBulkJson(e.target.value)} placeholder="Paste JSON array here..." className="w-full h-48 bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono text-emerald-400 focus:border-brand-500 outline-none transition shadow-inner custom-scrollbar"></textarea>
-            <button onClick={handleBulkParse} className="w-full py-3.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-black rounded-xl border border-emerald-500/30 transition flex items-center justify-center gap-2"><Code size={18} /> Parse & Add Bulk Questions</button>
+            {/* 🚀 NEW: JSON Schema Reference */}
+            <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 shadow-inner">
+              <span className="text-brand-400 block mb-3 text-xs font-black uppercase tracking-widest">
+                Expected JSON Format Reference
+              </span>
+              <pre className="text-emerald-400 text-xs font-mono overflow-x-auto custom-scrollbar leading-relaxed">
+{`[
+  {
+    "question": "What is the primary function of a tie line in chain surveying?",
+    "options": ["Check accuracy", "Take offsets for details", "Avoid obstacles", "Increase stations"],
+    "correct_answer": "Take offsets for details",
+    "explanation": "Tie lines are run to locate interior details that are far from main survey lines."
+  }
+]`}
+              </pre>
+            </div>
+
+            <textarea 
+              value={bulkJson} 
+              onChange={e => setBulkJson(e.target.value)} 
+              placeholder="Paste your JSON array here..." 
+              className="w-full h-48 bg-slate-950 border border-slate-800 rounded-xl p-4 text-sm font-mono text-slate-300 focus:border-brand-500 outline-none transition shadow-inner custom-scrollbar"
+            ></textarea>
+            <button 
+              onClick={handleBulkParse} 
+              className="w-full py-3.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-black rounded-xl border border-emerald-500/30 transition flex items-center justify-center gap-2"
+            >
+              <Code size={18} /> Parse & Add Bulk Questions
+            </button>
           </div>
         )}
 
