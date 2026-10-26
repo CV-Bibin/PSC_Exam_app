@@ -4,7 +4,7 @@ import { db } from '../services/firebase';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import { 
   Swords, Trophy, Target, Clock, BrainCircuit, Play, 
-  CheckCircle2, RotateCcw, Search, BarChart3, Radio, FileText, Filter
+  CheckCircle2, RotateCcw, Search, BarChart3, Radio, FileText, Filter, Lock, Eye
 } from 'lucide-react';
 
 export default function ExamArena() {
@@ -15,7 +15,7 @@ export default function ExamArena() {
   const [isLoading, setIsLoading] = useState(true);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState('all'); // 'all', 'pending', 'completed'
+  const [activeFilter, setActiveFilter] = useState('all');
 
   useEffect(() => {
     const fetchExams = async () => {
@@ -40,27 +40,56 @@ export default function ExamArena() {
     fetchExams();
   }, []);
 
-  const getExamStatus = (examId) => {
-    const completedExams = JSON.parse(localStorage.getItem('psc_completed_exams') || '[]');
-    if (completedExams.includes(examId)) {
-      return { id: 'completed', label: 'Mission Accomplished', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30', icon: CheckCircle2, btnText: 'Review Log', btnClass: 'bg-emerald-950/40 text-emerald-400 hover:bg-emerald-900 border border-emerald-500/30' };
+  // 🚀 UPDATED: Now checks Attempts Log and Admin Max Limits
+  const getExamStatus = (exam) => {
+    const attemptsLog = JSON.parse(localStorage.getItem('psc_exam_attempts') || '{}');
+    const attemptsMade = attemptsLog[exam.id] || 0;
+    
+    // Safety fallback for old format
+    const legacyCompleted = JSON.parse(localStorage.getItem('psc_completed_exams') || '[]');
+    const totalAttempts = Math.max(attemptsMade, legacyCompleted.includes(exam.id) ? 1 : 0);
+
+    const maxAllowed = exam.maxAttempts === 'unlimited' ? Infinity : (exam.maxAttempts || 1);
+
+    if (totalAttempts >= maxAllowed) {
+      return { 
+        id: 'locked', 
+        label: 'Attempts Exhausted', 
+        color: 'text-slate-400 bg-slate-900 border-slate-700', 
+        icon: Lock, 
+        btnText: 'Review Answer Key', 
+        btnClass: 'bg-sky-950/80 text-sky-400 hover:bg-sky-900 border border-sky-800 shadow-[0_0_15px_rgba(14,165,233,0.2)]' 
+      };
+    }
+
+    if (totalAttempts > 0) {
+      return { 
+        id: 'reattempt', 
+        label: `Attempt ${totalAttempts + 1} of ${maxAllowed === Infinity ? '∞' : maxAllowed}`, 
+        color: 'text-amber-400 bg-amber-500/10 border-amber-500/30', 
+        icon: RotateCcw, 
+        btnText: 'Re-Attempt Assessment', 
+        btnClass: 'bg-amber-600 hover:bg-amber-500 text-white font-black shadow-[0_0_20px_rgba(245,158,11,0.3)]' 
+      };
     }
     
-    const savedState = JSON.parse(localStorage.getItem(`psc_exam_state_${examId}`));
-    if (savedState && !savedState.isFinished && savedState.currentIndex > 0) {
-      return { id: 'progress', label: 'In Progress', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30', icon: RotateCcw, btnText: 'Resume Assessment', btnClass: 'bg-amber-500 hover:bg-amber-400 text-slate-950 font-black shadow-[0_0_20px_rgba(245,158,11,0.4)]' };
-    }
-    
-    return { id: 'new', label: 'Pending Access', color: 'text-brand-400 bg-brand-500/10 border-brand-500/30', icon: Target, btnText: 'Initiate Assessment', btnClass: 'bg-brand-500 hover:bg-brand-400 text-slate-950 font-black shadow-[0_0_20px_rgba(245,158,11,0.4)]' };
+    return { 
+      id: 'new', 
+      label: 'Pending Access', 
+      color: 'text-brand-400 bg-brand-500/10 border-brand-500/30', 
+      icon: Target, 
+      btnText: 'Initiate Assessment', 
+      btnClass: 'bg-brand-500 hover:bg-brand-400 text-slate-950 font-black shadow-[0_0_20px_rgba(245,158,11,0.4)]' 
+    };
   };
 
   const filterExams = (examsList) => {
     return examsList.filter(exam => {
       const matchesSearch = exam.title.toLowerCase().includes(searchQuery.toLowerCase());
-      const status = getExamStatus(exam.id).id;
+      const status = getExamStatus(exam).id;
       const matchesFilter = activeFilter === 'all' || 
-                            (activeFilter === 'completed' && status === 'completed') || 
-                            (activeFilter === 'pending' && status !== 'completed');
+                            (activeFilter === 'completed' && status === 'locked') || 
+                            (activeFilter === 'pending' && status !== 'locked');
       return matchesSearch && matchesFilter;
     });
   };
@@ -68,9 +97,12 @@ export default function ExamArena() {
   const filteredGrandMocks = useMemo(() => filterExams(grandMocks), [grandMocks, searchQuery, activeFilter]);
   const filteredWeeklyMocks = useMemo(() => filterExams(weeklyMocks), [weeklyMocks, searchQuery, activeFilter]);
 
-  const totalExams = grandMocks.length + weeklyMocks.length;
-  const completedExamsCount = JSON.parse(localStorage.getItem('psc_completed_exams') || '[]').length;
-  const pendingExamsCount = totalExams - completedExamsCount;
+  // 🚀 FIXED: Math Logic to prevent negative pending tasks
+  const totalModuleExams = grandMocks.length + weeklyMocks.length;
+  const allCompletedExams = JSON.parse(localStorage.getItem('psc_completed_exams') || '[]');
+  // Only count completed exams that actually exist in the Module list
+  const completedModuleExams = allCompletedExams.filter(id => [...grandMocks, ...weeklyMocks].some(m => m.id === id)).length;
+  const pendingExamsCount = Math.max(0, totalModuleExams - completedModuleExams);
 
   if (isLoading) {
     return <div className="flex justify-center items-center h-[60vh]"><div className="animate-spin w-12 h-12 border-4 border-brand-500 border-t-transparent rounded-full"></div></div>;
@@ -109,7 +141,7 @@ export default function ExamArena() {
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">Pending</span>
             </div>
             <div className="bg-emerald-950/20 p-5 rounded-2xl border border-emerald-900/50 shadow-inner flex flex-col items-center justify-center text-center group hover:border-emerald-500/40 transition-colors">
-              <span className="block text-3xl font-black text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,0.3)]">{completedExamsCount}</span>
+              <span className="block text-3xl font-black text-emerald-400 drop-shadow-[0_0_10px_rgba(16,185,129,0.3)]">{completedModuleExams}</span>
               <span className="text-[10px] font-black text-emerald-600/80 uppercase tracking-widest mt-1">Completed</span>
             </div>
           </div>
@@ -149,10 +181,12 @@ export default function ExamArena() {
               const endDate = new Date(exam.scheduledEndTime);
               const isPast = new Date() > endDate;
               const isNow = startDate <= new Date() && !isPast;
+              const status = getExamStatus(exam);
+              const isLocked = status.id === 'locked';
               
               return (
-                <div key={exam.id} className={`p-8 rounded-[2rem] border transition-all duration-300 flex flex-col justify-between group overflow-hidden relative ${isNow ? 'bg-rose-950/20 border-rose-500/50 shadow-[0_0_40px_rgba(225,29,72,0.15)]' : isPast ? 'bg-slate-900/30 border-slate-800/50 opacity-75' : 'bg-slate-900/50 border-slate-700/50 hover:border-slate-500'}`}>
-                  {isNow && <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/10 rounded-full blur-3xl group-hover:bg-rose-500/20 transition-colors pointer-events-none"></div>}
+                <div key={exam.id} className={`p-8 rounded-[2rem] border transition-all duration-300 flex flex-col justify-between group overflow-hidden relative ${isNow && !isLocked ? 'bg-rose-950/20 border-rose-500/50 shadow-[0_0_40px_rgba(225,29,72,0.15)]' : 'bg-slate-900/50 border-slate-700/50 hover:border-slate-500'}`}>
+                  {isNow && !isLocked && <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/10 rounded-full blur-3xl group-hover:bg-rose-500/20 transition-colors pointer-events-none"></div>}
                   
                   <div className="relative z-10">
                     <div className="flex items-center gap-3 mb-4">
@@ -161,10 +195,27 @@ export default function ExamArena() {
                       </span>
                     </div>
                     <h4 className="text-2xl font-black text-white mb-2">{exam.title}</h4>
-                    <p className="text-sm font-bold text-slate-400 mb-8 flex items-center gap-2"><Clock size={16} className={isNow ? "text-rose-400" : ""}/> Deployment: {startDate.toLocaleString()}</p>
+                    
+                    <div className="text-sm font-bold text-slate-400 mb-8 flex flex-col gap-2">
+                      <span className="flex items-center gap-2">
+                        <Clock size={16} className={isNow ? "text-rose-400" : ""}/> 
+                        Deployment: {startDate.toLocaleString()}
+                      </span>
+                      {isNow && (
+                        <span className="flex items-center gap-2 px-3 py-1.5 bg-rose-950/40 rounded-lg border border-rose-900/50 w-fit">
+                          Expires in: <LiveCountdown endTime={exam.scheduledEndTime} />
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <button disabled={!isNow} className={`relative z-10 w-full py-4 rounded-xl font-black text-base transition flex justify-center items-center gap-2 ${isNow ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-[0_0_20px_rgba(225,29,72,0.3)] active:scale-95' : 'bg-slate-950 text-slate-600 cursor-not-allowed border border-slate-800'}`}>
-                    {isNow ? <><Play size={18} /> Enter Live Arena</> : isPast ? "Exam Concluded" : <><Clock size={18} /> Awaiting Deployment</>}
+                  
+                  {/* 🚀 Dynamic Routing based on Lock Status */}
+                  <button 
+                    disabled={!(isNow || isLocked)} 
+                    onClick={() => navigate(isLocked ? `/exam/${exam.id}?mode=review` : `/exam/${exam.id}`)} 
+                    className={`relative z-10 w-full py-4 rounded-xl font-black text-base transition flex justify-center items-center gap-2 ${isLocked ? 'bg-sky-950/80 text-sky-400 border border-sky-800 hover:bg-sky-900 active:scale-95 shadow-[0_0_15px_rgba(14,165,233,0.2)]' : isNow ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-[0_0_20px_rgba(225,29,72,0.3)] active:scale-95' : 'bg-slate-950 text-slate-600 cursor-not-allowed border border-slate-800'}`}
+                  >
+                    {isLocked ? <><Eye size={18}/> Review Answer Key</> : isNow ? <><Play size={18} /> Enter Live Arena</> : isPast ? "Exam Concluded" : <><Clock size={18} /> Awaiting Deployment</>}
                   </button>
                 </div>
               );
@@ -183,10 +234,12 @@ export default function ExamArena() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {filteredGrandMocks.map(mock => {
-              const status = getExamStatus(mock.id);
+              const status = getExamStatus(mock);
+              const isLocked = status.id === 'locked';
+
               return (
                 <div key={mock.id} className="bg-slate-900/60 backdrop-blur-md border border-slate-700/50 p-8 rounded-[2rem] hover:-translate-y-1 hover:shadow-2xl hover:border-brand-500/40 transition-all duration-300 flex flex-col justify-between group relative overflow-hidden">
-                  <div className={`absolute top-0 right-0 w-32 h-32 rounded-full blur-3xl opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none ${status.id === 'completed' ? 'bg-emerald-500' : status.id === 'progress' ? 'bg-amber-500' : 'bg-brand-500'}`}></div>
+                  <div className={`absolute top-0 right-0 w-32 h-32 rounded-full blur-3xl opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none ${status.id === 'completed' || isLocked ? 'bg-sky-500' : status.id === 'reattempt' ? 'bg-amber-500' : 'bg-brand-500'}`}></div>
                   
                   <div className="relative z-10">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -197,13 +250,18 @@ export default function ExamArena() {
                     <h4 className="text-2xl font-black text-white mb-6 leading-tight group-hover:text-brand-400 transition-colors">{mock.title}</h4>
                     
                     <div className="flex flex-wrap items-center gap-3 text-xs font-black text-slate-400 mb-8 bg-slate-950/80 inline-flex p-3 px-4 rounded-xl border border-slate-800 shadow-inner">
-                      <span className="flex items-center gap-2 uppercase tracking-widest"><FileText size={16} className="text-brand-500" /> {mock.totalQuestions} Qs</span>
+                      <span className="flex items-center gap-2 uppercase tracking-widest"><FileText size={16} className="text-brand-500" /> {mock.totalQuestions || 0} Qs</span>
                       <div className="w-1.5 h-1.5 rounded-full bg-slate-700"></div>
                       <span className="flex items-center gap-2 uppercase tracking-widest"><Clock size={16} className="text-sky-400" /> {mock.timeLimitMinutes} Mins</span>
                     </div>
                   </div>
-                  <button onClick={() => navigate(`/exam/${mock.id}`)} className={`relative z-10 w-full py-4 rounded-2xl transition active:scale-95 flex items-center justify-center gap-2 text-base uppercase tracking-widest ${status.btnClass}`}>
-                    {status.btnText}
+                  
+                  {/* 🚀 Dynamic Routing for Review Mode */}
+                  <button 
+                    onClick={() => navigate(isLocked ? `/exam/${mock.id}?mode=review` : `/exam/${mock.id}`)} 
+                    className={`relative z-10 w-full py-4 rounded-2xl transition active:scale-95 flex items-center justify-center gap-2 text-base uppercase tracking-widest ${status.btnClass}`}
+                  >
+                    {isLocked ? <><Eye size={16}/> {status.btnText}</> : status.btnText}
                   </button>
                 </div>
               );
@@ -222,7 +280,9 @@ export default function ExamArena() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredWeeklyMocks.map(mock => {
-              const status = getExamStatus(mock.id);
+              const status = getExamStatus(mock);
+              const isLocked = status.id === 'locked';
+
               return (
                 <div key={mock.id} className="bg-slate-900/60 backdrop-blur-sm border border-slate-700/50 p-6 md:p-8 rounded-[2rem] flex flex-col justify-between hover:-translate-y-1 hover:shadow-xl hover:border-slate-500 transition-all duration-300 group">
                   <div>
@@ -233,11 +293,16 @@ export default function ExamArena() {
                     </div>
                     <h4 className="font-black text-white text-xl leading-snug mb-4 group-hover:text-sky-400 transition-colors">{mock.title}</h4>
                     <div className="flex items-center gap-3 text-xs font-black text-slate-500 mb-8 uppercase tracking-widest bg-slate-950 px-3 py-2 rounded-lg border border-slate-800 shadow-inner w-fit">
-                      <span>{mock.totalQuestions} Qs</span><div className="w-1 h-1 bg-slate-600 rounded-full"></div><span>{mock.timeLimitMinutes} Mins</span>
+                      <span>{mock.totalQuestions || 0} Qs</span><div className="w-1 h-1 bg-slate-600 rounded-full"></div><span>{mock.timeLimitMinutes} Mins</span>
                     </div>
                   </div>
-                  <button onClick={() => navigate(`/exam/${mock.id}`)} className={`w-full py-3.5 font-black text-xs uppercase tracking-widest rounded-xl transition active:scale-95 ${status.btnClass}`}>
-                    {status.btnText}
+
+                  {/* 🚀 Dynamic Routing for Review Mode */}
+                  <button 
+                    onClick={() => navigate(isLocked ? `/exam/${mock.id}?mode=review` : `/exam/${mock.id}`)} 
+                    className={`w-full py-3.5 font-black text-xs uppercase tracking-widest rounded-xl transition active:scale-95 flex items-center justify-center gap-2 ${status.btnClass}`}
+                  >
+                    {isLocked ? <><Eye size={14}/> {status.btnText}</> : status.btnText}
                   </button>
                 </div>
               );
@@ -273,4 +338,38 @@ function EmptyState({ message }) {
       <p className="max-w-md leading-relaxed">{message}</p>
     </div>
   );
+}
+
+// Live Countdown Timer Component
+// Live Countdown Timer Component
+function LiveCountdown({ endTime }) {
+  const [timeLeft, setTimeLeft] = useState('');
+
+  useEffect(() => {
+    const end = new Date(endTime).getTime();
+    const interval = setInterval(() => {
+      const now = new Date().getTime();
+      const distance = end - now;
+      if (distance < 0) {
+        clearInterval(interval);
+        setTimeLeft('EXPIRED');
+        return;
+      }
+      // 🚀 FIXED MATH: Correctly calculates total days
+      const d = Math.floor(distance / (1000 * 60 * 60 * 24));
+      const h = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const m = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+      const s = Math.floor((distance % (1000 * 60)) / 1000);
+      
+      // If there are days left, show "X Days, Yh Zm", otherwise just show "Yh Zm Ss"
+      if (d > 0) {
+        setTimeLeft(`${d} Days, ${h}h ${m}m`);
+      } else {
+        setTimeLeft(`${h}h ${m}m ${s}s`);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [endTime]);
+
+  return <span className="font-mono text-rose-400 font-bold">{timeLeft}</span>;
 }

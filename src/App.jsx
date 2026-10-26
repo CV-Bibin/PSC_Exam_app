@@ -8,9 +8,12 @@ import DailySequence from './pages/DailySequence';
 import MyActivity from './pages/MyActivity'; 
 import MistakeLog from './pages/MistakeLog'; 
 import DailyRevision from './pages/DailyRevision';
-import MockExam from './pages/MockExam';
 import Favorites from './pages/Favorites';
 import ExamArena from './pages/ExamArena';
+
+// 🚀 IMPORT THE NEW ACTIVE EXAM CATCHER
+// Note: Adjust the path if you saved ActiveExam.jsx inside '/pages' instead of '/components'
+import ActiveExam from './components/ActiveExam'; 
 
 // Placeholders for the remaining student pages we haven't built yet
 const AITutor = () => <div className="p-10 text-center text-slate-400 font-bold">AE Chettan AI Chat Interface (Coming Soon)</div>;
@@ -40,7 +43,7 @@ export default function App() {
         path="/login" 
         element={user ? <Navigate to={isAdmin ? "/admin" : "/dashboard"} replace /> : <Login />} 
       />
-
+      
       {/* Protected Layout Routes */}
       <Route path="/" element={
         <ProtectedRoute>
@@ -54,7 +57,9 @@ export default function App() {
         <Route path="activity" element={<MyActivity />} />
         <Route path="daily" element={<DailySequence />} />
         <Route path="revision" element={<DailyRevision />} />
-        <Route path="exam/:examId" element={<MockExam />} />
+        
+        {/* 🚀 UPDATED EXAM ROUTE */}
+        <Route path="exam/:id" element={<ActiveExam />} />
         
         {/* FIXED: Paths match the Navbar exactly without leading slashes */}
         <Route path="vault" element={<Favorites />} />
@@ -63,13 +68,14 @@ export default function App() {
         {/* Memory & AI Tools */}
         <Route path="tutor" element={<AITutor />} />
         <Route path="mistakes" element={<MistakeLog />} />
-
+        
         {/* Dedicated Admin Route */}
         <Route path="admin" element={
           <AdminRoute>
             <AdminDashboard />
           </AdminRoute>
         } />
+        
       </Route>
     </Routes>
   );
