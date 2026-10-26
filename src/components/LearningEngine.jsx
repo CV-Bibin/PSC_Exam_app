@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react';
 import { askAITutor } from '../services/gemini';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { 
-  CheckCircle2, Zap, AlertOctagon, FastForward, Highlighter, 
-  BookmarkPlus, Bot, X, Bookmark, ChevronRight, BookOpen, 
+import {
+  CheckCircle2, Zap, AlertOctagon, FastForward, Highlighter,
+  BookmarkPlus, Bot, X, Bookmark, ChevronRight, ChevronLeft, BookOpen,
   Calculator, LayoutGrid, HelpCircle, Image as ImageIcon, Lightbulb, Gamepad2, Layers
 } from 'lucide-react';
 import 'katex/dist/katex.min.css';
@@ -25,7 +25,7 @@ const HighlightedText = ({ text, highlights, onRemoveHighlight }) => {
   return (
     <span>
       <HighlightedText text={parts[0]} highlights={highlights} onRemoveHighlight={onRemoveHighlight} />
-      <mark 
+      <mark
         className={`${hl.colorClass} rounded px-1 cursor-pointer hover:opacity-70 transition-colors`}
         onClick={(e) => { e.stopPropagation(); onRemoveHighlight(hl.text); }}
         title="Click to erase highlight"
@@ -43,15 +43,15 @@ const cleanMD = (str) => typeof str === 'string' ? str.replace(/\*\*/g, '') : st
 // --- COMPONENT 1: THE DYNAMIC SLIDE RENDERER ---
 // This component strictly handles mapping AI data to beautiful UI layouts.
 
-const SlideRenderer = ({ 
-  chapter, 
-  activeStep, 
-  highlights, 
-  onRemoveHighlight, 
-  quizSelections, 
-  onQuizSelect, 
-  matchGameState, 
-  setMatchGameState 
+const SlideRenderer = ({
+  chapter,
+  activeStep,
+  highlights,
+  onRemoveHighlight,
+  quizSelections,
+  onQuizSelect,
+  matchGameState,
+  setMatchGameState
 }) => {
   const data = chapter.content_data;
 
@@ -77,7 +77,7 @@ const SlideRenderer = ({
     </div>
   ) : null;
 
-  switch(chapter.type) {
+  switch (chapter.type) {
     case 'definition':
       return (
         <div className="space-y-6">
@@ -106,13 +106,13 @@ const SlideRenderer = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-sky-950/20 border border-sky-500/30 p-8 rounded-3xl shadow-lg">
               <h4 className="text-xl font-bold text-sky-400 mb-6 flex items-center gap-3 border-b border-sky-500/20 pb-4">
-                <div className="w-8 h-8 rounded-lg bg-sky-500/20 flex items-center justify-center"><CheckCircle2 size={16}/></div>
+                <div className="w-8 h-8 rounded-lg bg-sky-500/20 flex items-center justify-center"><CheckCircle2 size={16} /></div>
                 {data.left_title}
               </h4>
               <ul className="space-y-4">
                 {data.left_points?.map((pt, i) => (
                   <li key={i} className="flex gap-4 text-slate-200 text-lg leading-relaxed">
-                    <span className="text-sky-500 shrink-0 mt-1">•</span> 
+                    <span className="text-sky-500 shrink-0 mt-1">•</span>
                     <HighlightedText text={cleanMD(pt)} highlights={highlights} onRemoveHighlight={onRemoveHighlight} />
                   </li>
                 ))}
@@ -120,13 +120,13 @@ const SlideRenderer = ({
             </div>
             <div className="bg-purple-950/20 border border-purple-500/30 p-8 rounded-3xl shadow-lg">
               <h4 className="text-xl font-bold text-purple-400 mb-6 flex items-center gap-3 border-b border-purple-500/20 pb-4">
-                <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center"><CheckCircle2 size={16}/></div>
+                <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center"><CheckCircle2 size={16} /></div>
                 {data.right_title}
               </h4>
               <ul className="space-y-4">
                 {data.right_points?.map((pt, i) => (
                   <li key={i} className="flex gap-4 text-slate-200 text-lg leading-relaxed">
-                    <span className="text-purple-500 shrink-0 mt-1">•</span> 
+                    <span className="text-purple-500 shrink-0 mt-1">•</span>
                     <HighlightedText text={cleanMD(pt)} highlights={highlights} onRemoveHighlight={onRemoveHighlight} />
                   </li>
                 ))}
@@ -141,15 +141,15 @@ const SlideRenderer = ({
         <div className="space-y-6">
           <ImageBlock />
           <div className="bg-amber-950/20 border border-amber-500/30 rounded-3xl p-8 md:p-10 flex flex-col md:flex-row items-center gap-10 shadow-lg">
-            
+
             <div className="flex-1 w-full text-center bg-slate-900 py-8 px-4 rounded-3xl border border-amber-500/20 shadow-inner relative overflow-hidden flex flex-col justify-center min-h-[150px]">
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent opacity-50"></div>
-              
+
               {/* FIXED: Reduced font scale to prevent scrollbars */}
               <div className="text-amber-400 overflow-x-auto custom-scrollbar w-full text-sm sm:text-base lg:text-lg px-2">
                 <BlockMath math={data.equation || ''} />
               </div>
-              
+
             </div>
 
             <div className="flex-1 w-full space-y-4">
@@ -163,13 +163,13 @@ const SlideRenderer = ({
                 </div>
               ))}
             </div>
-            
+
           </div>
           {data.explanation && <p className="text-slate-300 text-base md:text-lg text-center mt-6 italic px-4">{data.explanation}</p>}
         </div>
       );
 
-   case 'takeaways':
+    case 'takeaways':
       return (
         <div className="space-y-6">
           <ImageBlock />
@@ -247,7 +247,7 @@ const SlideRenderer = ({
             {data.options?.map((opt, i) => {
               const isSelected = isAnswered === opt;
               let btnStyle = "bg-slate-900 border-slate-700 text-slate-300 hover:border-indigo-400";
-              
+
               if (isAnswered) {
                 if (opt === data.correct) btnStyle = "bg-emerald-950/50 border-emerald-500 text-emerald-400 font-bold shadow-[0_0_15px_rgba(16,185,129,0.2)]";
                 else if (isSelected) btnStyle = "bg-rose-950/30 border-rose-500 text-rose-400 line-through opacity-70";
@@ -255,13 +255,13 @@ const SlideRenderer = ({
               }
 
               return (
-                <button 
-                  key={i} 
+                <button
+                  key={i}
                   disabled={isAnswered}
                   onClick={() => onQuizSelect(opt)}
                   className={`w-full text-left p-5 rounded-2xl border-2 transition text-lg flex items-center ${btnStyle}`}
                 >
-                  <span className="inline-block w-10 h-10 rounded-xl bg-slate-950/50 text-center leading-[40px] mr-4 font-mono font-bold shrink-0">{['A','B','C','D'][i]}</span>
+                  <span className="inline-block w-10 h-10 rounded-xl bg-slate-950/50 text-center leading-[40px] mr-4 font-mono font-bold shrink-0">{['A', 'B', 'C', 'D'][i]}</span>
                   {opt}
                 </button>
               );
@@ -282,13 +282,13 @@ const SlideRenderer = ({
 
     case 'interactive_match': {
       if (!data.pairs) return null;
-      
+
       // Stabilize scrambling by sorting alphabetically so it doesn't jump around on re-renders
       const rightOptions = [...data.pairs].map(p => p.right).sort((a, b) => a.localeCompare(b));
-      
+
       const handleMatchClick = (side, text, index) => {
-        if (matchGameState.matched.includes(text)) return; 
-        
+        if (matchGameState.matched.includes(text)) return;
+
         if (side === 'left') {
           setMatchGameState({ ...matchGameState, selectedLeft: text });
         } else if (side === 'right' && matchGameState.selectedLeft) {
@@ -322,16 +322,16 @@ const SlideRenderer = ({
               {data.pairs.map((pair, i) => {
                 const isMatched = matchGameState.matched.includes(pair.left);
                 const isSelected = matchGameState.selectedLeft === pair.left;
-                
+
                 return (
-                  <button 
+                  <button
                     key={`l-${i}`}
                     onClick={() => handleMatchClick('left', pair.left, i)}
                     disabled={isMatched}
                     className={`w-full p-4 rounded-xl text-left font-semibold transition border-2
-                      ${isMatched ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-500 opacity-50' 
-                      : isSelected ? 'bg-brand-500/20 border-brand-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)]' 
-                      : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-brand-400 hover:bg-slate-800'}`}
+                      ${isMatched ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-500 opacity-50'
+                        : isSelected ? 'bg-brand-500/20 border-brand-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)]'
+                          : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-brand-400 hover:bg-slate-800'}`}
                   >
                     {pair.left}
                   </button>
@@ -343,16 +343,16 @@ const SlideRenderer = ({
             <div className="space-y-3">
               {rightOptions.map((rightText, i) => {
                 const isMatched = matchGameState.matched.includes(rightText);
-                
+
                 return (
-                  <button 
+                  <button
                     key={`r-${i}`}
                     onClick={() => handleMatchClick('right', rightText, i)}
                     disabled={isMatched || !matchGameState.selectedLeft}
                     className={`w-full p-4 rounded-xl text-left font-semibold transition border-2
-                      ${isMatched ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-500 opacity-50' 
-                      : matchGameState.selectedLeft ? 'bg-slate-950 border-sky-700 text-slate-300 hover:border-sky-400 hover:bg-slate-800 cursor-pointer' 
-                      : 'bg-slate-950 border-slate-800 text-slate-500 cursor-not-allowed'}`}
+                      ${isMatched ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-500 opacity-50'
+                        : matchGameState.selectedLeft ? 'bg-slate-950 border-sky-700 text-slate-300 hover:border-sky-400 hover:bg-slate-800 cursor-pointer'
+                          : 'bg-slate-950 border-slate-800 text-slate-500 cursor-not-allowed'}`}
                   >
                     {rightText}
                   </button>
@@ -383,14 +383,14 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
   const highlightsKey = `psc_mission_${mission?.dayNumber}_highlights`;
   const vaultKey = `psc_mission_${mission?.dayNumber}_vault`;
 
-  const [activeStep, setActiveStep] = useState(() => parseInt(localStorage.getItem(stepKey)) || 0); 
-  const [highlights, setHighlights] = useState(() => JSON.parse(localStorage.getItem(highlightsKey) || '[]')); 
+  const [activeStep, setActiveStep] = useState(() => parseInt(localStorage.getItem(stepKey)) || 0);
+  const [highlights, setHighlights] = useState(() => JSON.parse(localStorage.getItem(highlightsKey) || '[]'));
   const [savedVault, setSavedVault] = useState(() => JSON.parse(localStorage.getItem(vaultKey) || '[]'));
-  
+
   const [selectionMenu, setSelectionMenu] = useState(null);
   const [aiModal, setAiModal] = useState({ isOpen: false, query: '', response: '', loading: false });
-  
-  const [quizSelections, setQuizSelections] = useState({}); 
+
+  const [quizSelections, setQuizSelections] = useState({});
   const [matchGameState, setMatchGameState] = useState({ selectedLeft: null, matched: [] });
 
   const chapters = mission?.curriculumData?.study_material || [];
@@ -452,18 +452,18 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
     setSelectionMenu(null);
   };
 
-const handleAskAI = async () => {
+  const handleAskAI = async () => {
     const queryText = selectionMenu.text;
     window.getSelection().removeAllRanges();
     setSelectionMenu(null);
-    
+
     // 1. Set loading to true, but keep isOpen FALSE so it runs in the background
     setAiModal({ isOpen: false, query: queryText, response: '', loading: true });
-    
+
     try {
       const context = `Module: ${mission.title}. Explain this specific point clearly for a PSC exam student in simple terms.`;
       const aiResponse = await askAITutor(queryText, context);
-      
+
       // 2. Once the AI answers, pop open the modal
       setAiModal({ isOpen: true, query: queryText, response: aiResponse, loading: false });
     } catch (error) {
@@ -472,10 +472,19 @@ const handleAskAI = async () => {
     }
   };
 
+  const handlePrevPage = () => {
+    if (activeStep > 0) {
+      const prevStep = activeStep - 1;
+      setActiveStep(prevStep);
+      localStorage.setItem(stepKey, prevStep.toString());
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   const handleNextPage = () => {
     const nextStep = activeStep + 1;
     setActiveStep(nextStep);
-    localStorage.setItem(stepKey, nextStep.toString()); 
+    localStorage.setItem(stepKey, nextStep.toString());
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (nextStep >= chapters.length) onComplete();
   };
@@ -486,7 +495,7 @@ const handleAskAI = async () => {
 
   return (
     <div className="p-4 md:p-8 bg-civil-dark/50 flex flex-col relative min-h-[60vh]">
-      
+
       {selectionMenu && (
         <div id="floating-menu" className="fixed z-50 flex items-center gap-2 p-1.5 bg-slate-800 border border-slate-600 rounded-lg shadow-2xl animate-in zoom-in-95 duration-100" style={{ top: selectionMenu.y, left: selectionMenu.x, transform: 'translateX(-50%)' }}>
           <div className="flex items-center gap-1.5 px-2 border-r border-slate-700">
@@ -504,7 +513,7 @@ const handleAskAI = async () => {
           </button>
         </div>
       )}
-      \
+      
       {/* 🚀 NEW: Background Loading Indicator Toast */}
       {aiModal.loading && !aiModal.isOpen && (
         <div className="fixed bottom-8 right-8 z-50 bg-slate-900 border border-brand-500/40 p-4 rounded-2xl shadow-[0_10px_40px_rgba(245,158,11,0.2)] flex items-center gap-4 animate-in slide-in-from-bottom-8">
@@ -521,10 +530,10 @@ const handleAskAI = async () => {
           <div className="bg-slate-900 border border-brand-500/30 rounded-2xl w-full max-w-2xl max-h-[85vh] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-4 bg-brand-950/30 border-b border-brand-500/20 flex justify-between items-start shrink-0 select-none">
               <div>
-                <span className="text-[10px] text-brand-400 font-bold uppercase tracking-widest flex items-center gap-1.5"><Bot size={12}/> AE Chettan Explains</span>
+                <span className="text-[10px] text-brand-400 font-bold uppercase tracking-widest flex items-center gap-1.5"><Bot size={12} /> AE Chettan Explains</span>
                 <p className="text-slate-300 text-sm mt-1 italic border-l-2 border-slate-700 pl-2 line-clamp-2">"{aiModal.query}"</p>
               </div>
-              <button onClick={() => setAiModal({ isOpen: false, query: '', response: '', loading: false })} className="text-slate-500 hover:text-rose-400 transition p-1 bg-slate-800 rounded-lg"><X size={20}/></button>
+              <button onClick={() => setAiModal({ isOpen: false, query: '', response: '', loading: false })} className="text-slate-500 hover:text-rose-400 transition p-1 bg-slate-800 rounded-lg"><X size={20} /></button>
             </div>
             <div className="p-6 text-base overflow-y-auto custom-scrollbar flex-1 prose prose-invert max-w-none text-slate-200">
               {aiModal.loading ? (
@@ -538,11 +547,11 @@ const handleAskAI = async () => {
             </div>
             {!aiModal.loading && (
               <div className="p-4 bg-slate-950 border-t border-slate-800 shrink-0 select-none">
-                <button 
+                <button
                   onClick={() => { handleSaveToVault(`**AI Note on "${aiModal.query}":**\n\n${aiModal.response}`, 'ai_note'); setAiModal({ isOpen: false, query: '', response: '', loading: false }); }}
                   className="w-full py-3 bg-brand-500 hover:bg-brand-600 text-slate-950 font-bold text-sm rounded-xl flex justify-center items-center gap-2 transition shadow-lg"
                 >
-                  <BookmarkPlus size={16}/> Save Explanation to My Vault
+                  <BookmarkPlus size={16} /> Save Explanation to My Vault
                 </button>
               </div>
             )}
@@ -551,9 +560,9 @@ const handleAskAI = async () => {
       )}
 
       {/* --- SINGLE BOOK PAGE VIEW --- */}
-     {!isReadingFinished && currentChapter && (
+      {!isReadingFinished && currentChapter && (
         <div className="flex flex-col flex-1 bg-slate-900/95 border border-slate-700 rounded-3xl p-6 md:p-10 shadow-[0_0_50px_rgba(0,0,0,0.5)] animate-in slide-in-from-right-4 fade-in duration-300">
-          
+
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 border-b border-slate-800 pb-6 select-none">
             <div>
               {/* 🚀 NEW: CONTEXT BREADCRUMB UI */}
@@ -563,7 +572,7 @@ const handleAskAI = async () => {
                   {currentChapter.context_breadcrumb}
                 </div>
               )}
-              
+
               {currentChapter.badge && (
                 <span className="inline-block px-3 py-1 mb-3 rounded-full bg-brand-500/10 border border-brand-500/30 text-brand-400 font-bold text-xs uppercase tracking-widest shadow-sm">
                   {currentChapter.badge}
@@ -578,7 +587,7 @@ const handleAskAI = async () => {
 
           <div className="flex-1" onMouseUp={handleMouseUp}>
             {/* 🚀 NEW CLEAN DELEGATION TO THE SLIDE RENDERER COMPONENT */}
-            <SlideRenderer 
+            <SlideRenderer
               chapter={currentChapter}
               activeStep={activeStep}
               highlights={highlights}
@@ -588,7 +597,7 @@ const handleAskAI = async () => {
               matchGameState={matchGameState}
               setMatchGameState={setMatchGameState}
             />
-            
+
             {/* Standard Key Data / Specs Footer (Applies universally if data exists) */}
             {currentChapter.key_data?.length > 0 && (
               <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner mt-8">
@@ -621,20 +630,35 @@ const handleAskAI = async () => {
           </div>
 
           {/* Pagination Controls */}
-          <div className="mt-12 flex items-center justify-between pt-6 border-t border-slate-800 select-none">
-            <span className="text-sm font-bold text-slate-500 bg-slate-800 px-4 py-2 rounded-xl">
-              Slide {activeStep + 1} of {chapters.length}
-            </span>
+          <div className="mt-12 flex flex-col-reverse sm:flex-row items-center justify-between gap-4 pt-6 border-t border-slate-800 select-none">
+            
+            <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-start">
+              {/* Previous Button (Turns invisible on slide 1) */}
+              <button 
+                onClick={handlePrevPage}
+                disabled={activeStep === 0}
+                className="px-6 py-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-0 disabled:cursor-default text-white font-bold text-base md:text-lg rounded-xl shadow-md flex items-center gap-2 transition active:scale-95"
+              >
+                <ChevronLeft size={20} /> Prev
+              </button>
+
+              <span className="text-sm font-bold text-slate-400 bg-slate-900 border border-slate-700 px-4 py-2 rounded-xl shrink-0">
+                Slide {activeStep + 1} of {chapters.length}
+              </span>
+            </div>
+
+            {/* Next Button */}
             <button 
               onClick={handleNextPage} 
               disabled={
                 (currentChapter.type === 'quick_quiz' && !quizSelections[activeStep]) ||
                 (currentChapter.type === 'interactive_match' && matchGameState.matched.length !== (currentChapter.content_data?.pairs?.length || 0) * 2)
               }
-              className="px-8 py-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-base md:text-lg rounded-xl shadow-xl flex items-center gap-2 transition active:scale-95"
+              className="w-full sm:w-auto px-8 py-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-base md:text-lg rounded-xl shadow-xl flex justify-center items-center gap-2 transition active:scale-95"
             >
               {activeStep === chapters.length - 1 ? <><CheckCircle2 size={20} /> Finish & Unlock Drills</> : <>Next Slide <ChevronRight size={20}/></>}
             </button>
+            
           </div>
         </div>
       )}
@@ -671,11 +695,11 @@ const handleAskAI = async () => {
               <div className="grid grid-cols-1 gap-4" onMouseUp={handleMouseUp}>
                 {savedVault.map((note, idx) => (
                   <div key={idx} className={`p-5 rounded-2xl border text-base ${note.type === 'ai_note' ? 'bg-slate-900 border-brand-500/30 shadow-inner' : 'bg-slate-900/50 border-slate-700'}`}>
-                    {note.type === 'ai_note' && <span className="block text-xs text-brand-400 font-bold mb-3 uppercase tracking-widest"><Bot size={14} className="inline mr-1"/> AI Explanation</span>}
+                    {note.type === 'ai_note' && <span className="block text-xs text-brand-400 font-bold mb-3 uppercase tracking-widest"><Bot size={14} className="inline mr-1" /> AI Explanation</span>}
                     {note.type === 'ai_note' ? (
-                       <div className="prose prose-invert max-w-none text-slate-300">
-                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{note.text}</ReactMarkdown>
-                       </div>
+                      <div className="prose prose-invert max-w-none text-slate-300">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{note.text}</ReactMarkdown>
+                      </div>
                     ) : (
                       <span className="text-slate-300 leading-relaxed">
                         <HighlightedText text={cleanMD(note.text)} highlights={highlights} onRemoveHighlight={handleRemoveHighlight} />
@@ -688,7 +712,7 @@ const handleAskAI = async () => {
           )}
 
           <div className="flex justify-center pt-2">
-            <button 
+            <button
               onClick={() => {
                 setActiveStep(0);
                 localStorage.setItem(stepKey, '0');
