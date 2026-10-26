@@ -15,7 +15,6 @@ export default function DailySequence() {
   const [gameStarted, setGameStarted] = useState(false);
   const [completedDrills, setCompletedDrills] = useState([]);
   
-  // Track globally completed days (e.g., [1, 2])
   const [completedDays, setCompletedDays] = useState([]);
 
   useEffect(() => {
@@ -30,7 +29,6 @@ export default function DailySequence() {
           const storedCompletedDays = JSON.parse(localStorage.getItem('psc_completed_days') || '[]');
           setCompletedDays(storedCompletedDays);
 
-          // Find first uncompleted task, or default to the last available task
           const nextPendingTask = tasks.find(task => !storedCompletedDays.includes(task.dayNumber)) || tasks[tasks.length - 1];
           loadMissionState(nextPendingTask);
         }
@@ -50,22 +48,24 @@ export default function DailySequence() {
     const savedDrills = JSON.parse(localStorage.getItem(`mission_${selectedMission.dayNumber}_drills`) || '[]');
     setCompletedDrills(savedDrills);
     
-    // Auto-unlock drills if they've already finished the reading step before
     const savedStep = parseInt(localStorage.getItem(`psc_mission_${selectedMission.dayNumber}_step`)) || 0;
     const totalChapters = selectedMission.curriculumData?.study_material?.length || 0;
     setDrillsUnlocked(savedStep >= totalChapters && totalChapters > 0);
   };
 
+  // 🚀 CRITICAL FIX: Functional state update prevents React from dropping rapid progression saves
   const handleMarkDrillComplete = (type) => {
-    if (!completedDrills.includes(type)) {
-      const updated = [...completedDrills, type];
-      setCompletedDrills(updated);
-      localStorage.setItem(`mission_${mission.dayNumber}_drills`, JSON.stringify(updated));
-    }
+    setCompletedDrills(prev => {
+      if (!prev.includes(type)) {
+        const updated = [...prev, type];
+        localStorage.setItem(`mission_${mission.dayNumber}_drills`, JSON.stringify(updated));
+        return updated;
+      }
+      return prev;
+    });
   };
 
   const handleUnlockNextDay = () => {
-    // 1. Mark current day as completed
     let updatedDays = [...completedDays];
     if (!completedDays.includes(mission.dayNumber)) {
       updatedDays = [...completedDays, mission.dayNumber];
@@ -73,7 +73,6 @@ export default function DailySequence() {
       localStorage.setItem('psc_completed_days', JSON.stringify(updatedDays));
     }
     
-    // 2. Load the next day automatically
     const nextMission = allMissions.find(m => m.dayNumber === mission.dayNumber + 1);
     if (nextMission) {
       loadMissionState(nextMission);
@@ -82,7 +81,6 @@ export default function DailySequence() {
     }
   };
 
-  // --- FAVORITES SAVE FUNCTIONS ---
   const handleMemorizeTopic = (slideHeading, slideContent) => {
     const existing = JSON.parse(localStorage.getItem('psc_fav_memorized') || '[]');
     const newNote = { id: Date.now().toString(), heading: slideHeading, content: slideContent };
@@ -98,11 +96,8 @@ export default function DailySequence() {
   if (isLoading) return <div className="flex justify-center items-center h-[70vh]"><div className="animate-spin w-12 h-12 border-4 border-brand-500 border-t-transparent rounded-full"></div></div>;
   if (!mission) return <div className="text-center text-slate-400 p-10 font-bold border border-dashed border-slate-700 rounded-2xl m-6">No Active Missions Found. Awaiting Admin Deployment.</div>;
 
-  // --- STRICT PROGRESSION LOGIC ---
-  // Calculates what the highest open day is based on completed days
   const highestUnlockedDay = completedDays.length > 0 ? Math.max(...completedDays) + 1 : 1;
 
-  // Ensure every available drill type has been completed before unlocking
   const areAllAvailableDrillsDone = ['mcq', 'flashcards', 'trap'].every(drillType => {
     const hasDataForDrill = 
       (drillType === 'mcq' && mission.curriculumData?.quizzes?.length > 0) ||
@@ -112,10 +107,8 @@ export default function DailySequence() {
     return !hasDataForDrill || completedDrills.includes(drillType);
   });
 
-  // Mission is fully complete if reading is done AND all available drills are done
   const isMissionFullyComplete = drillsUnlocked && areAllAvailableDrillsDone;
 
-  // --- GAME ARENA VIEW ---
   if (activeGame) {
     return (
       <div className="flex flex-col h-[calc(100vh-8rem)] animate-in zoom-in-95 duration-300">
@@ -187,11 +180,9 @@ export default function DailySequence() {
     );
   };
 
-  // --- STANDARD SEQUENCE VIEW ---
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       
-      {/* MISSION SELECTOR RIBBON WITH VISUAL LOCKS */}
       <div className="flex gap-3 overflow-x-auto custom-scrollbar pb-2 pt-1 px-1">
         {allMissions.map((m) => {
           const isLocked = m.dayNumber > highestUnlockedDay;
@@ -231,7 +222,6 @@ export default function DailySequence() {
 
       <div className={`grid grid-cols-1 gap-6 ${drillsUnlocked ? 'lg:grid-cols-3' : 'max-w-5xl mx-auto w-full'}`}>
         
-        {/* INTERACTIVE BOOK READER */}
         <div className={`bg-civil-card rounded-2xl border border-civil-border flex flex-col shadow-2xl ${drillsUnlocked ? 'lg:col-span-2' : ''}`}>
           <div className="p-4 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between select-none">
             <h2 className="font-bold text-white flex items-center gap-2"><BookOpen className="text-brand-400" size={18} /> {drillsUnlocked ? 'Revision & Vault' : 'Interactive Book Reader'}</h2>
@@ -247,7 +237,6 @@ export default function DailySequence() {
           />
         </div>
 
-        {/* DRILLS & UNLOCK NEXT DAY MODULE */}
         {drillsUnlocked && (
           <div className="flex flex-col gap-6 animate-in slide-in-from-right-8 fade-in duration-700">
             <div className="bg-civil-card rounded-2xl border border-civil-border flex flex-col shadow-2xl h-fit">
@@ -259,14 +248,12 @@ export default function DailySequence() {
                 <DrillButton type="flashcards" icon={Layers} title="Memory Vault" desc="Rapid-fire active recall." colorClass="text-sky-400" />
                 <DrillButton type="trap" icon={ShieldAlert} title="Spot the Trap" desc="Identify tricky PSC statements." colorClass="text-amber-400" />
                 
-                {/* Fallback if no drills exist at all */}
                 {(!mission.curriculumData?.quizzes?.length && !mission.curriculumData?.games?.flashcards?.length && !mission.curriculumData?.games?.spot_the_trap?.length) && (
                   <p className="text-sm text-slate-500 font-semibold text-center py-4 border border-dashed border-slate-700 rounded-xl">No active recall drills generated for this specific module.</p>
                 )}
               </div>
             </div>
 
-            {/* UNLOCK NEXT DAY BUTTON */}
             {isMissionFullyComplete && !completedDays.includes(mission.dayNumber) && (
               <button 
                 onClick={handleUnlockNextDay}

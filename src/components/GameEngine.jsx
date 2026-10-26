@@ -6,11 +6,26 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function GameEngine({ gameType, curriculumData, onExit, onMarkComplete, isExamMode = false, forceReviewMode = false, examId = 'default' }) {
   
-  // 🚀 CORE FIX: Initialize states safely synchronously to prevent component flashing
+  // 🚀 SYNCHRONOUS INITIALIZATION: Prevents the UI from flashing Question 1 and triggering false attempts
   const [isReviewMode, setIsReviewMode] = useState(forceReviewMode);
   const [isExamSubmitted, setIsExamSubmitted] = useState(forceReviewMode);
-  const [userAnswers, setUserAnswers] = useState({});
-  const [score, setScore] = useState(0);
+
+  const [userAnswers, setUserAnswers] = useState(() => {
+    if (forceReviewMode) {
+      const hist = JSON.parse(localStorage.getItem(`psc_exam_history_${examId}`));
+      return hist?.answers || {};
+    }
+    return {};
+  });
+
+  const [score, setScore] = useState(() => {
+    if (forceReviewMode) {
+      const hist = JSON.parse(localStorage.getItem(`psc_exam_history_${examId}`));
+      return hist?.score || 0;
+    }
+    return 0;
+  });
+
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showResult, setShowResult] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
@@ -25,12 +40,14 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
 
   const isFinished = isExamMode ? isExamSubmitted : (currentIndex >= gameData.length);
 
+  // 🚀 DYNAMIC ATTEMPT CALCULATION
   const maxAllowed = curriculumData?.maxAttempts === 'unlimited' ? Infinity : (curriculumData?.maxAttempts || 1);
   const currentAttempts = curriculumData?.currentAttempts || 0;
-  // If reviewing history, don't subtract 1
+  // If they just submitted, we subtract 1 so the button hides immediately when they hit 0
   const remainingAfterSubmit = forceReviewMode ? (maxAllowed - currentAttempts) : (maxAllowed - currentAttempts - 1);
 
   // 🚀 CRITICAL FIX: Sync State on Navigation
+  // This prevents the bug where React remembers the old exam state when you click a different exam
   useEffect(() => {
     if (forceReviewMode) {
       const hist = JSON.parse(localStorage.getItem(`psc_exam_history_${examId}`) || 'null');
@@ -50,8 +67,13 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
     }
   }, [forceReviewMode, examId]);
 
+  // Async Mistake Logging (Fires only after the exam is successfully submitted, NEVER on review)
   useEffect(() => {
     if (isFinished && gameData.length > 0 && !forceReviewMode) {
+      if (!isExamMode && onMarkComplete) {
+        onMarkComplete(gameType, sessionLog);
+      }
+
       if (mistakes.length > 0 && !curriculumData?.isRemedial) {
         try {
           const existingMistakes = JSON.parse(localStorage.getItem('psc_mistakes') || '[]');
@@ -96,6 +118,7 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
     setSessionLog(log); 
     setIsExamSubmitted(true);
 
+    // Save exact answers for Tactical Review 
     localStorage.setItem(`psc_exam_history_${examId}`, JSON.stringify({
       score: finalScore, answers: userAnswers, log: log
     }));
@@ -183,7 +206,7 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
   }
 
   // ---------------------------------------------------------
-  // 2. FINAL SCORE SCREEN 
+  // 2. FINAL SCORE SCREEN (With smart Re-Attempt button)
   // ---------------------------------------------------------
   if (isFinished || gameData.length === 0) {
     return (
@@ -206,9 +229,10 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
             </button>
           )}
           
+          {/* Automatically hides if they exhausted attempts */}
           {isExamMode && remainingAfterSubmit > 0 && (
             <button 
-              onClick={() => window.location.href = window.location.pathname}
+              onClick={() => window.location.href = window.location.pathname} // Cleans the URL and forces fresh mount
               className="px-6 py-4 bg-amber-600 hover:bg-amber-500 text-white font-black rounded-xl transition shadow-[0_0_20px_rgba(245,158,11,0.3)] flex items-center gap-2"
             >
               <RefreshCw size={20} /> Re-Attempt ({remainingAfterSubmit === Infinity ? '∞' : remainingAfterSubmit} Left)
