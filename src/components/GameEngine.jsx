@@ -165,7 +165,12 @@ const handleSaveQuestion = (q) => {
   };
 
   // 🚀 FIX 3: Bulletproof Exit Handler
-  const handleExitClick = () => {
+ const handleExitClick = () => {
+    // 🚀 CRITICAL FIX: Sends the streak data to MistakeLog right before closing!
+    if (!isExamMode && onMarkComplete) {
+      onMarkComplete(gameType, sessionLog);
+    }
+    
     if (onExit) onExit();
     else navigate('/arena'); 
   };
@@ -198,7 +203,25 @@ const handleSaveQuestion = (q) => {
                   </div>
                   <div className="w-full">
                     <span className="text-xs font-black text-slate-500 uppercase tracking-widest mb-2 block">Question {idx + 1}</span>
-                    <h4 className="text-lg font-bold text-white mb-4">{q.question || q.statement}</h4>
+                    <div className="flex items-start justify-between gap-4 mb-4">
+  <h4 className="text-lg font-bold text-white">{q.question || q.statement}</h4>
+  
+  <button 
+    onClick={() => {
+      const savedQs = JSON.parse(localStorage.getItem('psc_fav_questions') || '[]');
+      if (!savedQs.find(item => item.question === (q.question || q.statement))) {
+        localStorage.setItem('psc_fav_questions', JSON.stringify([{ id: Date.now().toString(), ...q }, ...savedQs]));
+        alert("Question saved to your Vault!");
+      } else {
+        alert("Already saved in Vault!");
+      }
+    }}
+    className="p-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-400 hover:text-amber-400 hover:border-amber-500/50 transition shrink-0"
+    title="Save Question to Vault"
+  >
+    <BookmarkPlus size={16} />
+  </button>
+</div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                       <div className={`p-4 rounded-xl border ${isCorrect ? 'bg-emerald-950/20 border-emerald-900/50' : 'bg-rose-950/20 border-rose-900/50'}`}>

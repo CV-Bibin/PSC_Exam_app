@@ -1,86 +1,121 @@
 import { useState, useEffect } from 'react';
-import { History, CheckCircle2, RotateCcw, Target, AlertOctagon, BrainCircuit } from 'lucide-react';
+import { History, CheckCircle2, RotateCcw, Target, AlertOctagon, BrainCircuit, Lock } from 'lucide-react';
 import GameEngine from '../components/GameEngine';
 
 export default function MistakeLog() {
   const [mistakes, setMistakes] = useState([]);
   const [isDrillActive, setIsDrillActive] = useState(false);
+  const [drillCurriculum, setDrillCurriculum] = useState(null); 
+  const [nextAvailableDate, setNextAvailableDate] = useState(null);
 
   useEffect(() => {
+    // 1. Load Mistakes
     const loadMistakes = () => {
       const stored = JSON.parse(localStorage.getItem('psc_mistakes') || '[]');
-      
       const formatted = stored.map(m => ({
         ...m,
         streak: m.streak || 0,
-        // Unify the correct answer property from older database formats
         correct_answer: m.correct_answer || m.correct || m.fact || "Answer missing",
       }));
       setMistakes(formatted);
     };
     loadMistakes();
+
+    // 2. Check 7-Day Cooldown Lock
+    const lastDrillTime = localStorage.getItem('psc_last_remedial_drill');
+    if (lastDrillTime) {
+      const nextDate = new Date(new Date(lastDrillTime).getTime() + (7 * 24 * 60 * 60 * 1000));
+      if (new Date() < nextDate) {
+        setNextAvailableDate(nextDate);
+      }
+    }
   }, []);
 
-  // Filter out mistakes that have been answered correctly 3 times in a row
   const activeMistakes = mistakes.filter(m => m.streak < 3);
-  const masteredCount = mistakes.length - activeMistakes.length;
+  const masteredCount = JSON.parse(localStorage.getItem('psc_mastered_count') || '0');
 
-  const handleDrillComplete = (gameType, sessionLog) => {
-    if (!sessionLog) {
-      setIsDrillActive(false);
-      return;
+  // 🚀 THE SHUFFLE ENGINE: Randomizes Questions AND Options!
+  const launchShuffledDrill = () => {
+    let preparedQuestions = activeMistakes.map(m => {
+      const isTrap = m.type === 'trap' || !m.options || m.options.length === 0;
+      let finalOptions = [];
+      let finalCorrect = "";
+
+      if (isTrap) {
+        const isFact = String(m.correct_answer).toLowerCase().includes("fact") || String(m.correct_answer).toLowerCase().includes("true") || m.correct_answer === true;
+        finalOptions = ["FACT (True)", "TRAP (False)"]; 
+        finalCorrect = isFact ? "FACT (True)" : "TRAP (False)";
+      } else {
+        // Shuffle the 4 MCQ Options
+        finalOptions = [...m.options];
+        for (let i = finalOptions.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [finalOptions[i], finalOptions[j]] = [finalOptions[j], finalOptions[i]];
+        }
+        finalCorrect = m.correct_answer;
+      }
+
+      return {
+        question: m.statement || m.question || "Unknown Statement",
+        options: finalOptions,
+        correct_answer: finalCorrect,
+        explanation: m.explanation || "Review this concept carefully."
+      };
+    });
+
+    // Shuffle the overall Questions array
+    for (let i = preparedQuestions.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [preparedQuestions[i], preparedQuestions[j]] = [preparedQuestions[j], preparedQuestions[i]];
     }
 
-    const updatedMistakes = mistakes.map(mistake => {
-      // Check if they got this specific mistake right or wrong based on either question or statement
+    setDrillCurriculum({
+      isRemedial: true,
+      timeLimitMinutes: Math.ceil(activeMistakes.length * 1.5),
+      quizzes: preparedQuestions
+    });
+    
+    setIsDrillActive(true);
+  };
+
+  const handleDrillComplete = (gameType, sessionLog) => {
+    if (!sessionLog) return;
+
+    let newlyMastered = 0;
+
+    // Update Streaks based on what was right/wrong
+    let updatedMistakes = mistakes.map(mistake => {
       const mistakeText = mistake.question || mistake.statement;
       const gotCorrect = sessionLog.correct.some(q => q.question === mistakeText);
       const gotWrong = sessionLog.incorrect.some(q => q.question === mistakeText);
 
       if (gotCorrect) {
-        return { ...mistake, streak: (mistake.streak || 0) + 1 };
+        const newStreak = (mistake.streak || 0) + 1;
+        if (newStreak >= 3) newlyMastered++;
+        return { ...mistake, streak: newStreak };
       } else if (gotWrong) {
-        return { ...mistake, streak: 0 }; // Reset streak on failure
+        return { ...mistake, streak: 0 }; // Reset streak to 0 if they fail
       }
       return mistake;
     });
 
+    // PERMANENT DELETION: Instantly remove anything with 3 streaks
+    updatedMistakes = updatedMistakes.filter(m => m.streak < 3);
+
+    // Secure the 7-day lock
+    const now = new Date();
+    const nextDate = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
+    
+    // Update local storage and UI instantly (no page reload needed)
     setMistakes(updatedMistakes);
+    setNextAvailableDate(nextDate); 
+    
     localStorage.setItem('psc_mistakes', JSON.stringify(updatedMistakes));
-    setIsDrillActive(false);
+    localStorage.setItem('psc_last_remedial_drill', now.toISOString());
+    localStorage.setItem('psc_mastered_count', (masteredCount + newlyMastered).toString());
   };
 
-  if (isDrillActive) {
-    // 🚀 NEW: Smart Normalizer
-    // This safely converts both MCQ and Trap mistakes into valid GameEngine format
-    const remedialCurriculum = {
-      isRemedial: true, 
-      timeLimitMinutes: Math.ceil(activeMistakes.length * 1.5), 
-      quizzes: activeMistakes.map(m => {
-        const isTrap = m.type === 'trap' || !m.options || m.options.length === 0;
-
-        if (isTrap) {
-          // Convert Trap into a 2-option MCQ
-          const isFact = String(m.correct_answer).toLowerCase().includes("fact") || String(m.correct_answer).toLowerCase().includes("true") || m.correct_answer === true;
-          
-          return {
-            question: m.statement || m.question || "Unknown Statement",
-            options: ["FACT (True)", "TRAP (False)"],
-            correct_answer: isFact ? "FACT (True)" : "TRAP (False)",
-            explanation: m.explanation || "Review this concept carefully."
-          };
-        }
-
-        // Standard MCQ
-        return {
-          question: m.question || m.statement || "Unknown Question",
-          options: m.options,
-          correct_answer: m.correct_answer,
-          explanation: m.explanation || "Review this concept carefully."
-        };
-      })
-    };
-
+  if (isDrillActive && drillCurriculum) {
     return (
       <div className="max-w-4xl mx-auto h-[calc(100vh-6rem)]">
         <div className="mb-4 flex items-center justify-between bg-amber-950/40 border border-amber-500/30 p-4 rounded-2xl shadow-lg">
@@ -91,15 +126,18 @@ export default function MistakeLog() {
         <div className="bg-civil-card border border-civil-border rounded-[2rem] shadow-2xl h-[calc(100%-5rem)] p-6 overflow-y-auto">
           <GameEngine 
             gameType="mcq" 
-            curriculumData={remedialCurriculum} 
-            onExit={() => setIsDrillActive(false)} 
+            curriculumData={drillCurriculum} 
+            // 🚀 Now waits for you to click "Return to Dashboard" before closing
+            onExit={() => { setIsDrillActive(false); setDrillCurriculum(null); }} 
             onMarkComplete={handleDrillComplete}
-            isExamMode={false} // Immediate feedback during remedial drills
+            isExamMode={false} 
           />
         </div>
       </div>
     );
   }
+
+  const daysUntilNextDrill = nextAvailableDate ? Math.max(1, Math.ceil((nextAvailableDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))) : 0;
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500 pb-16">
@@ -114,7 +152,7 @@ export default function MistakeLog() {
               </div>
               <h1 className="text-4xl md:text-5xl font-black text-white tracking-tight">Mistake Log & Mastery</h1>
             </div>
-            <p className="text-base text-slate-400 font-medium ml-1">Spaced repetition engine. Clear an error 3 consecutive times to archive it.</p>
+            <p className="text-base text-slate-400 font-medium ml-1">Spaced repetition engine. Clear an error 3 consecutive times to permanently archive it.</p>
           </div>
           
           <div className="flex gap-4">
@@ -124,7 +162,7 @@ export default function MistakeLog() {
             </div>
             <div className="bg-emerald-950/20 p-4 rounded-2xl border border-emerald-900/50 text-center shadow-inner">
               <span className="block text-2xl font-black text-emerald-400">{masteredCount}</span>
-              <span className="text-[10px] font-black text-emerald-600/80 uppercase tracking-widest">Mastered</span>
+              <span className="text-[10px] font-black text-emerald-600/80 uppercase tracking-widest">Mastered All-Time</span>
             </div>
           </div>
         </div>
@@ -132,11 +170,19 @@ export default function MistakeLog() {
 
       {activeMistakes.length > 0 ? (
         <div className="space-y-6">
-          <div className="flex justify-between items-center px-2">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 px-2">
             <h3 className="text-xl font-black text-white flex items-center gap-2"><Target className="text-amber-400" /> Pending Remediation</h3>
-            <button onClick={() => setIsDrillActive(true)} className="px-6 py-3 bg-brand-500 hover:bg-brand-400 text-slate-950 font-black rounded-xl shadow-[0_0_20px_rgba(245,158,11,0.3)] transition active:scale-95 flex items-center gap-2">
-              <BrainCircuit size={18} /> Launch Remedial Drill
-            </button>
+            
+            {/* WEEKLY LOCKOUT UI */}
+            {nextAvailableDate ? (
+              <button disabled className="px-6 py-3 bg-slate-950 border border-slate-800 text-slate-500 font-black rounded-xl transition flex items-center gap-2 cursor-not-allowed">
+                <Lock size={18} /> Locked: {daysUntilNextDrill} Days Remaining
+              </button>
+            ) : (
+              <button onClick={launchShuffledDrill} className="px-6 py-3 bg-brand-500 hover:bg-brand-400 text-slate-950 font-black rounded-xl shadow-[0_0_20px_rgba(245,158,11,0.3)] transition active:scale-95 flex items-center gap-2">
+                <BrainCircuit size={18} /> Launch Weekly Drill
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-1 gap-4">
@@ -156,7 +202,6 @@ export default function MistakeLog() {
                   </div>
                 </div>
 
-                {/* 3-Strike Mastery Tracker */}
                 <div className="shrink-0 flex flex-col items-center justify-center bg-slate-950 rounded-2xl p-5 border border-slate-800 shadow-inner md:w-48">
                   <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">Mastery Streak</span>
                   <div className="flex gap-2">
