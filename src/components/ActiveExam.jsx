@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'; // 🚀 Added useSearchParams
 import { db } from '../services/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import GameEngine from './GameEngine'; 
@@ -7,61 +7,53 @@ import GameEngine from './GameEngine';
 export default function ActiveExam() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams(); // 🚀 Reads the URL for ?mode=review
+  
   const [examData, setExamData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchExam = async () => {
-      console.log("🔍 SEARCHING FOR EXAM ID:", id); // Check your F12 Console!
       try {
+        // 1. Check Live Quizzes first
+        let docRef = doc(db, 'live_quizzes', id); 
+        let snap = await getDoc(docRef);
         
-        const docRef = doc(db, 'live_quizzes', id); 
-        const snap = await getDoc(docRef);
+        // 2. If not found, check Weekly/Grand Mocks
+        if (!snap.exists()) {
+          docRef = doc(db, 'weekly_mocks', id);
+          snap = await getDoc(docRef);
+        }
         
         if (snap.exists()) {
-          console.log("✅ EXAM FOUND:", snap.data());
           setExamData(snap.data());
         } else {
-          console.error("❌ EXAM NOT FOUND IN DATABASE! Checked collection: 'live_exams' for ID:", id);
+          console.error("Exam not found in either collection.");
         }
       } catch (error) {
-        console.error("🔥 FIREBASE ERROR:", error);
+        console.error("Firebase Error:", error);
       } finally {
         setLoading(false);
       }
     };
     
-    if (id) {
-      fetchExam();
-    } else {
-      console.error("❌ NO ID IN URL!");
-      setLoading(false);
-    }
+    if (id) fetchExam();
   }, [id]);
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-[70vh]">
-        <div className="w-12 h-12 border-4 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
-      </div>
-    );
-  }
+  if (loading) return <div className="flex justify-center items-center h-[70vh]"><div className="w-12 h-12 border-4 border-brand-500 border-t-transparent rounded-full animate-spin"></div></div>;
 
-  if (!examData) {
-    return (
-      <div className="flex flex-col justify-center items-center h-[70vh] text-center animate-in fade-in">
-        <h2 className="text-3xl font-black text-rose-500 mb-2">Exam Not Found</h2>
-        <p className="text-slate-400 font-bold mb-8">This exam may have been removed or has expired.</p>
-        <p className="text-xs text-slate-500 mb-4 font-mono">Debug ID: {id}</p>
-        <button 
-          onClick={() => navigate('/arena')} 
-          className="px-8 py-4 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-black transition"
-        >
-          Return to Arena
-        </button>
-      </div>
-    );
-  }
+  if (!examData) return <div className="text-center text-rose-500 mt-20 font-bold text-2xl">Exam not found or expired.</div>;
+
+  // Check attempts
+  const attemptsMade = parseInt(localStorage.getItem(`psc_attempts_${id}`) || '0');
+  const maxAllowed = examData?.maxAttempts === 'unlimited' ? Infinity : parseInt(examData?.maxAttempts || 1);
+  const isExhausted = attemptsMade >= maxAllowed;
+
+  // 🚀 CRITICAL FIX: Check if the URL explicitly asks for review mode
+  const isReviewUrl = searchParams.get('mode') === 'review';
+  
+  // Force review if they maxed out attempts OR clicked the review button
+  const forceReview = isExhausted || isReviewUrl;
 
   return (
     <div className="pt-4 h-full">
@@ -70,6 +62,7 @@ export default function ActiveExam() {
         curriculumData={examData} 
         isExamMode={true} 
         examId={id}
+        forceReviewMode={forceReview} // 🚀 Flawlessly triggers the Tactical Answer Key!
         onExit={() => navigate('/arena')} 
       />
     </div>

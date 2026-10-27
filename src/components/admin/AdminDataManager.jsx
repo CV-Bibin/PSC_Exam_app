@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../services/firebase';
 import { collection, getDocs, doc, deleteDoc, updateDoc, query, orderBy } from 'firebase/firestore';
-import { 
-  Database, Users, Trash2, Edit3, AlertTriangle, X, Target, Save, Clock, Trophy
-} from 'lucide-react';
+import { Database, Users, Trash2, Edit3, AlertTriangle, X, Target, Save, Clock, Trophy } from 'lucide-react';
 
 export default function AdminDataManager() {
   const [activeTab, setActiveTab] = useState('tasks'); // 'tasks' | 'exams' | 'users'
@@ -200,7 +198,8 @@ export default function AdminDataManager() {
                   <div>
                     <div className="font-bold text-slate-200 text-sm mb-0.5">{res.email || 'Anonymous Student'}</div>
                     <div className="text-xs text-slate-400 flex items-center gap-2">
-                      <Clock size={12}/> {date} • <span className="text-brand-400 font-semibold">{res.examType}</span>
+                      <Clock size={12}/> {date}
+                      <span className="text-brand-400 font-semibold">{res.examType}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-4 bg-slate-950 px-4 py-2 rounded-xl border border-slate-800">

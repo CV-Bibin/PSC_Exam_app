@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom'; // 🚀 FIX 1: Imported navigation
-import { Target, Layers, ShieldAlert, CheckCircle2, XCircle, ArrowRight, RotateCw, Trophy, Eye, RefreshCw, ArrowLeft, AlertOctagon } from 'lucide-react';
+import { Target, Layers, ShieldAlert, CheckCircle2, XCircle, ArrowRight, RotateCw, Trophy, Eye, RefreshCw, ArrowLeft, AlertOctagon,BookmarkPlus } from 'lucide-react';
 import TacticalTimer from './TacticalTimer';
 import { db } from '../services/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
@@ -54,8 +54,9 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
   const isFinished = isExamMode ? isExamSubmitted : (currentIndex >= gameData.length);
 
   const maxAllowed = curriculumData?.maxAttempts === 'unlimited' ? Infinity : (curriculumData?.maxAttempts || 1);
-  const currentAttempts = curriculumData?.currentAttempts || 0;
-  const remainingAfterSubmit = forceReviewMode ? (maxAllowed - currentAttempts) : (maxAllowed - currentAttempts - 1);
+// Read attempts from local storage based on this specific exam ID
+const currentAttempts = parseInt(localStorage.getItem(`psc_attempts_${examId}`) || '0');
+const remainingAfterSubmit = maxAllowed - currentAttempts;
 
   // Sync State on Navigation to prevent overlap
   useEffect(() => {
@@ -77,33 +78,20 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
     }
   }, [forceReviewMode, examId]);
 
-  useEffect(() => {
-    const finalizeSession = async () => {
-      if (isFinished && gameData.length > 0 && !forceReviewMode) {
-        if (!isExamMode && onMarkComplete) {
-          onMarkComplete(gameType, sessionLog);
-        }
-        
-        if (mistakes.length > 0 && !curriculumData?.isRemedial) {
-          try {
-            const existingMistakes = JSON.parse(localStorage.getItem('psc_mistakes') || '[]');
-            const newUnique = mistakes.filter(m => !existingMistakes.some(em => em.question === m.question || (m.statement && em.statement === m.statement)));
 
-            if (newUnique.length > 0) {
-              localStorage.setItem('psc_mistakes', JSON.stringify([...existingMistakes, ...newUnique]));
-              await addDoc(collection(db, 'users/demo_user/mistake_log'), {
-                examDate: serverTimestamp(), drillType: gameType,
-                mistakes_recorded: newUnique, total_errors: newUnique.length, status: 'pending_review'
-              });
-            }
-          } catch (error) { console.error("Mistake Telemetry Logging Error:", error); }
-        }
-      }
-    };
-    finalizeSession();
-  }, [isFinished, forceReviewMode, mistakes, gameData.length, isExamMode, onMarkComplete, sessionLog, gameType, curriculumData?.isRemedial]);
 
-  const handleFinalSubmit = () => {
+const handleSaveQuestion = (q) => {
+    const savedQs = JSON.parse(localStorage.getItem('psc_fav_questions') || '[]');
+    if (!savedQs.find(item => item.question === q.question)) {
+      const newSaved = { id: Date.now().toString(), ...q };
+      localStorage.setItem('psc_fav_questions', JSON.stringify([newSaved, ...savedQs]));
+      alert("Question saved to your Vault!");
+    } else {
+      alert("Already saved in Vault!");
+    }
+  };
+
+ const handleFinalSubmit = () => {
     let finalScore = 0;
     let newMistakes = [];
     let log = { correct: [], incorrect: [] };
@@ -118,9 +106,14 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
       } else {
         log.incorrect.push(q);
         newMistakes.push({
-          type: 'mcq', question: q.question || q.statement, options: q.options || [],
-          correct_answer: targetAns, student_answer: studentAns,
-          explanation: q.explanation || "No explanation provided.", streak: 0
+          type: 'mcq', 
+          question: q.question || q.statement, 
+          options: q.options || [],
+          correct_answer: targetAns, 
+          student_answer: studentAns,
+          explanation: q.explanation || "No explanation provided.", 
+          streak: 0,
+          dateAdded: new Date().toISOString()
         });
       }
     });
@@ -130,9 +123,23 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
     setSessionLog(log); 
     setIsExamSubmitted(true);
 
+    // 1. Save History for Review Mode
     localStorage.setItem(`psc_exam_history_${examId}`, JSON.stringify({
       score: finalScore, answers: userAnswers, log: log
     }));
+
+    // 2. Increment Attempts
+    localStorage.setItem(`psc_attempts_${examId}`, currentAttempts + 1);
+
+    // 3. AUTO-SAVE MISTAKES!
+    if (newMistakes.length > 0) {
+      const existingMistakes = JSON.parse(localStorage.getItem('psc_mistakes') || '[]');
+      // Filter out mistakes that are already saved
+      const uniqueNew = newMistakes.filter(m => !existingMistakes.some(em => em.question === m.question));
+      if (uniqueNew.length > 0) {
+        localStorage.setItem('psc_mistakes', JSON.stringify([...existingMistakes, ...uniqueNew]));
+      }
+    }
     
     if (onMarkComplete) onMarkComplete(gameType, log);
   };
@@ -291,10 +298,19 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
     return (
       <div className="w-full max-w-3xl mx-auto space-y-8 animate-in slide-in-from-right-8 fade-in duration-300">
         <div className="flex flex-col sm:flex-row justify-between items-center gap-4 text-sm font-bold text-slate-500 bg-slate-900 px-5 py-4 rounded-2xl border border-slate-800 shadow-inner">
-          <div className="flex items-center gap-6">
-            <span className="bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-white">Q {currentIndex + 1} / {gameData.length}</span>
-            {!isExamMode && <span className="text-brand-400 uppercase tracking-widest">Score: {score}</span>}
-          </div>
+          <div className="flex items-center gap-4">
+  <span className="bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-white">Q {currentIndex + 1} / {gameData.length}</span>
+  {!isExamMode && <span className="text-brand-400 uppercase tracking-widest">Score: {score}</span>}
+  
+  {/* The New Bookmark Button */}
+  <button 
+    onClick={() => handleSaveQuestion(currentItem)}
+    className="p-1.5 text-slate-400 hover:text-amber-400 bg-slate-950 border border-slate-800 rounded-lg transition"
+    title="Save Question to Vault"
+  >
+    <BookmarkPlus size={16} />
+  </button>
+</div>
           <TacticalTimer timeLimitMinutes={curriculumData?.timeLimitMinutes || 10} onTimeUp={handleTimeUp} />
         </div>
 

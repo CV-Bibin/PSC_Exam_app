@@ -41,9 +41,10 @@ export default function ExamArena() {
   }, []);
 
   // 🚀 UPDATED: Now checks Attempts Log and Admin Max Limits
+  // 🚀 UPDATED: Now checks Attempts Log and Admin Max Limits
   const getExamStatus = (exam) => {
-    const attemptsLog = JSON.parse(localStorage.getItem('psc_exam_attempts') || '{}');
-    const attemptsMade = attemptsLog[exam.id] || 0;
+    // 🚀 FIXED: Now properly reads the exact attempt key saved by GameEngine!
+    const attemptsMade = parseInt(localStorage.getItem(`psc_attempts_${exam.id}`) || '0');
     
     // Safety fallback for old format
     const legacyCompleted = JSON.parse(localStorage.getItem('psc_completed_exams') || '[]');

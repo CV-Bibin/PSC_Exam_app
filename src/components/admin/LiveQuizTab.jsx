@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../services/firebase';
 import { collection, addDoc, serverTimestamp, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore';
-import { Target, Clock, Loader2, Plus, Trash2, Code, Edit3, ListChecks, Database, Timer, Repeat, Edit } from 'lucide-react';
+import { Target, Clock, Loader2, Plus, Trash2, Code, Edit3, ListChecks, Database, Timer, Repeat, Edit, RotateCw, History } from 'lucide-react';
 
 export default function LiveQuizTab() {
   const [liveTitle, setLiveTitle] = useState('');
@@ -12,7 +12,6 @@ export default function LiveQuizTab() {
   const [isPublishingLive, setIsPublishingLive] = useState(false);
   const [liveStatus, setLiveStatus] = useState('');
   
-  // 🚀 NEW: Editing State
   const [editingExamId, setEditingExamId] = useState(null);
 
   const [questions, setQuestions] = useState([]);
@@ -23,8 +22,9 @@ export default function LiveQuizTab() {
 
   const fetchDeployedExams = async () => {
     try {
+      // 🚀 FIXED: Pointing back to your correct database folder: 'live_quizzes'
       const snap = await getDocs(collection(db, 'live_quizzes'));
-      setDeployedExams(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setDeployedExams(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => new Date(b.scheduledStartTime) - new Date(a.scheduledStartTime)));
     } catch (error) { console.error("Error fetching deployed exams:", error); }
   };
 
@@ -41,22 +41,56 @@ export default function LiveQuizTab() {
     }
   };
 
-  // 🚀 NEW: Load Exam into form for Editing
+  // Extend Deadline (Keeps History)
+  const handleExtendDeadline = async (examId) => {
+    if (window.confirm("Extend the deadline? Students' past attempts and scores WILL be saved. They cannot retake it if they already submitted.")) {
+      try {
+        const newHrs = prompt("Extend by how many hours?", "24");
+        if (!newHrs) return;
+        const exam = deployedExams.find(e => e.id === examId);
+        const newEnd = new Date(new Date(exam.scheduledEndTime).getTime() + parseInt(newHrs) * 60 * 60 * 1000).toISOString();
+        
+        await updateDoc(doc(db, 'live_quizzes', examId), { scheduledEndTime: newEnd });
+        setLiveStatus("✅ Deadline extended! History preserved.");
+        fetchDeployedExams();
+      } catch (error) { setLiveStatus(`❌ Failed to extend deadline: ${error.message}`); }
+    }
+  };
+
+  // Hard Reset (Wipes History)
+  const handleHardResetRedeploy = async (examId) => {
+    if (window.confirm("HARD RESET? This wipes all student progress for this exam and gives everyone a fresh, new attempt. Proceed?")) {
+      try {
+        const newHrs = prompt("Enter duration in hours for the new deployment:", "24");
+        if (!newHrs) return;
+        const newEnd = new Date(Date.now() + parseInt(newHrs) * 60 * 60 * 1000).toISOString();
+        
+        await updateDoc(doc(db, 'live_quizzes', examId), {
+          deployedAt: Date.now(), // 🚀 Changing this invalidates the old local storage save file for students
+          scheduledStartTime: new Date().toISOString(),
+          scheduledEndTime: newEnd
+        });
+        setLiveStatus("✅ Exam successfully reset and redeployed!");
+        fetchDeployedExams();
+      } catch (error) { setLiveStatus(`❌ Failed to reset exam: ${error.message}`); }
+    }
+  };
+
   const handleEditExam = (exam) => {
     setEditingExamId(exam.id);
     setLiveTitle(exam.title);
     
-    // Format dates for HTML datetime-local input
     const formatForInput = (isoString) => {
+      if (!isoString) return '';
       const d = new Date(isoString);
       return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     };
     
     setStartTime(formatForInput(exam.scheduledStartTime));
     setEndTime(formatForInput(exam.scheduledEndTime));
-    setTimeLimit(exam.timeLimitMinutes);
-    setMaxAttempts(exam.maxAttempts === 'unlimited' ? 'unlimited' : exam.maxAttempts.toString());
-    setQuestions(exam.questions || []);
+    setTimeLimit(exam.timeLimitMinutes || 15);
+    setMaxAttempts(exam.maxAttempts === 'unlimited' ? 'unlimited' : (exam.maxAttempts?.toString() || '1'));
+    setQuestions(exam.questions || exam.quizzes || []); // Handle both schemas
     
     setLiveStatus(`⚠️ Editing Mode Active: "${exam.title}"`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -95,7 +129,6 @@ export default function LiveQuizTab() {
 
   const removeQuestion = (indexToRemove) => setQuestions(questions.filter((_, idx) => idx !== indexToRemove));
 
-  // 🚀 UPDATED: Handles both Publishing New and Updating Existing
   const handleScheduleLiveQuiz = async () => {
     if (!liveTitle || !startTime || !endTime) { setLiveStatus('⚠️ Please fill out the title and both time fields.'); return; }
     if (questions.length === 0) { setLiveStatus('⚠️ You must add at least 1 question to the exam.'); return; }
@@ -117,7 +150,7 @@ export default function LiveQuizTab() {
         await updateDoc(doc(db, 'live_quizzes', editingExamId), examPayload);
         setLiveStatus(`✅ Exam "${liveTitle}" Updated Successfully!`);
       } else {
-        await addDoc(collection(db, 'live_quizzes'), { ...examPayload, createdAt: serverTimestamp() });
+        await addDoc(collection(db, 'live_quizzes'), { ...examPayload, createdAt: serverTimestamp(), deployedAt: Date.now() });
         setLiveStatus('✅ Live Quiz Scheduled Successfully!');
       }
 
@@ -126,6 +159,39 @@ export default function LiveQuizTab() {
     } catch (error) { setLiveStatus(`❌ Error: ${error.message}`); } 
     finally { setIsPublishingLive(false); }
   };
+
+  const nowIso = new Date().toISOString();
+  const activeExams = deployedExams.filter(e => e.scheduledEndTime > nowIso);
+  const pastExams = deployedExams.filter(e => e.scheduledEndTime <= nowIso);
+
+  const ExamAdminCard = ({ exam, isActive }) => (
+    <div className={`p-5 rounded-2xl border flex flex-col justify-between group transition ${isActive ? 'bg-slate-900 border-brand-500/30 hover:border-brand-500/60 shadow-lg' : 'bg-slate-900/40 border-slate-800 hover:border-slate-600'}`}>
+      <div>
+        <div className="flex justify-between items-start mb-4">
+          <h4 className={`font-bold ${isActive ? 'text-white' : 'text-slate-400'}`}>{exam.title}</h4>
+          <span className={`px-2 py-1 text-[10px] font-black uppercase tracking-widest rounded-md shrink-0 ${isActive ? 'bg-brand-500/20 text-brand-400' : 'bg-slate-800 text-slate-500'}`}>
+            {isActive ? 'Active' : 'Expired'}
+          </span>
+        </div>
+        <p className="text-xs text-slate-400 font-bold flex items-center gap-2 mb-1"><ListChecks size={14}/> {exam.questions?.length || exam.quizzes?.length || 0} Questions</p>
+        <p className="text-xs text-slate-400 font-bold flex items-center gap-2 mb-4"><Clock size={14}/> {exam.timeLimitMinutes} Mins • {exam.maxAttempts === 'unlimited' ? '∞' : exam.maxAttempts} Attempts</p>
+        <div className="text-[10px] text-slate-500 font-mono mb-4 pt-4 border-t border-slate-800/50">
+          Ends: {new Date(exam.scheduledEndTime).toLocaleString()}
+        </div>
+      </div>
+
+      <div className="space-y-2 mt-4">
+        <div className="flex gap-2">
+          <button onClick={() => handleEditExam(exam)} className="flex-1 py-2 bg-sky-500/10 text-sky-400 text-xs font-bold rounded-xl hover:bg-sky-600 hover:text-white transition flex items-center justify-center gap-1.5" title="Edit Content"><Edit size={14} /> Edit</button>
+          <button onClick={() => handleDeleteExam(exam.id, exam.title)} className="flex-1 py-2 bg-rose-500/10 text-rose-500 text-xs font-bold rounded-xl hover:bg-rose-600 hover:text-white transition flex items-center justify-center gap-1.5" title="Purge Exam"><Trash2 size={14} /> Purge</button>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => handleExtendDeadline(exam.id)} className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5" title="Extend Deadline (Keep History)"><Clock size={14}/> Extend</button>
+          <button onClick={() => handleHardResetRedeploy(exam.id)} className="flex-1 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-500 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5" title="Redeploy (Fresh Attempt)"><RotateCw size={14}/> Redeploy</button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className={`max-w-4xl mx-auto bg-civil-card border transition-colors duration-500 p-6 md:p-10 rounded-3xl shadow-2xl animate-in slide-in-from-right-4 ${editingExamId ? 'border-sky-500/50 shadow-[0_0_50px_rgba(14,165,233,0.1)]' : 'border-civil-border'}`}>
@@ -160,7 +226,6 @@ export default function LiveQuizTab() {
         </div>
       </div>
 
-      {/* QUESTION INJECTION SECTION */}
       <div className="space-y-6 mb-10 bg-slate-900/50 p-6 rounded-2xl border border-slate-800">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 border-b border-slate-800 pb-4">
           <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
@@ -201,7 +266,6 @@ export default function LiveQuizTab() {
 
         {inputMode === 'bulk' && (
           <div className="space-y-4 animate-in fade-in duration-300">
-            {/* 🚀 NEW: JSON Schema Reference */}
             <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 shadow-inner">
               <span className="text-brand-400 block mb-3 text-xs font-black uppercase tracking-widest">
                 Expected JSON Format Reference
@@ -217,7 +281,6 @@ export default function LiveQuizTab() {
 ]`}
               </pre>
             </div>
-
             <textarea 
               value={bulkJson} 
               onChange={e => setBulkJson(e.target.value)} 
@@ -263,24 +326,25 @@ export default function LiveQuizTab() {
       </button>
 
       <div className="mt-12 pt-8 border-t border-slate-800">
-        <h3 className="text-xl font-black text-white flex items-center gap-2 mb-6"><Database size={24} className="text-sky-400" /> Active Deployments</h3>
-        <div className="space-y-3 max-h-96 overflow-y-auto custom-scrollbar pr-2">
-          {deployedExams.map(exam => (
-            <div key={exam.id} className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800 flex justify-between items-center group hover:border-slate-600 transition">
-              <div>
-                <h4 className="font-bold text-slate-200">{exam.title}</h4>
-                <p className="text-xs text-slate-500 font-mono mt-1 flex gap-3">
-                  <span>Starts: {new Date(exam.scheduledStartTime).toLocaleString()}</span><span>•</span><span>{exam.questions?.length || 0} Qs</span><span>•</span><span className="text-amber-400">{exam.maxAttempts === 'unlimited' ? 'Unlimited' : exam.maxAttempts} Attempts</span>
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => handleEditExam(exam)} className="p-3 bg-sky-500/10 text-sky-400 rounded-xl hover:bg-sky-600 hover:text-white transition" title="Edit Exam"><Edit size={18} /></button>
-                <button onClick={() => handleDeleteExam(exam.id, exam.title)} className="p-3 bg-rose-500/10 text-rose-500 rounded-xl hover:bg-rose-600 hover:text-white transition" title="Purge Exam"><Trash2 size={18} /></button>
-              </div>
-            </div>
-          ))}
-          {deployedExams.length === 0 && <div className="text-center py-8 text-slate-500 text-sm font-bold border border-dashed border-slate-800 rounded-2xl">No active exams deployed.</div>}
-        </div>
+        <h3 className="text-2xl font-black text-white flex items-center gap-2 mb-6"><Database size={24} className="text-brand-400" /> Active Deployments</h3>
+        
+        {activeExams.length === 0 ? (
+          <div className="text-center py-8 text-slate-500 text-sm font-bold border border-dashed border-slate-800 rounded-2xl mb-8">No active exams deployed.</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+            {activeExams.map(exam => <ExamAdminCard key={exam.id} exam={exam} isActive={true} />)}
+          </div>
+        )}
+
+        <h3 className="text-2xl font-black text-slate-400 flex items-center gap-2 mb-6"><History size={24} className="text-slate-500" /> Deployment History</h3>
+        
+        {pastExams.length === 0 ? (
+          <div className="text-center py-8 text-slate-500 text-sm font-bold border border-dashed border-slate-800 rounded-2xl">No past exams found.</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {pastExams.map(exam => <ExamAdminCard key={exam.id} exam={exam} isActive={false} />)}
+          </div>
+        )}
       </div>
     </div>
   );
