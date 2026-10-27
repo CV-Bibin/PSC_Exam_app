@@ -145,6 +145,7 @@ export default function DailySequence() {
               curriculumData={mission.curriculumData} 
               onExit={() => { setActiveGame(null); setGameStarted(false); }}
               onMarkComplete={handleMarkDrillComplete}
+              isExamMode={false}
             />
           )}
         </div>

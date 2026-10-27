@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
-import { Target, Layers, ShieldAlert, CheckCircle2, XCircle, ArrowRight, RotateCw, Trophy, Eye, RefreshCw, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom'; // 🚀 FIX 1: Imported navigation
+import { Target, Layers, ShieldAlert, CheckCircle2, XCircle, ArrowRight, RotateCw, Trophy, Eye, RefreshCw, ArrowLeft, AlertOctagon } from 'lucide-react';
 import TacticalTimer from './TacticalTimer';
 import { db } from '../services/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
+// 🚀 Added examId and forceReviewMode to handle live exams properly
 export default function GameEngine({ gameType, curriculumData, onExit, onMarkComplete, isExamMode = false, forceReviewMode = false, examId = 'default' }) {
-  
-  // 🚀 SYNCHRONOUS INITIALIZATION: Prevents the UI from flashing Question 1 and triggering false attempts
+  const navigate = useNavigate(); // 🚀 Initialize navigation
+
+  // Synchronous initialization for exam history
   const [isReviewMode, setIsReviewMode] = useState(forceReviewMode);
   const [isExamSubmitted, setIsExamSubmitted] = useState(forceReviewMode);
 
@@ -33,21 +36,28 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
   const [sessionLog, setSessionLog] = useState({ correct: [], incorrect: [] });
   const [isFlipped, setIsFlipped] = useState(false); 
 
+  // 🚀 FIX 2: Added curriculumData?.questions fallback so Live Exams load properly!
+  let extractedMCQData = [];
+  if (Array.isArray(curriculumData)) {
+    extractedMCQData = curriculumData;
+  } else if (curriculumData?.questions) {
+    extractedMCQData = curriculumData.questions;
+  } else if (curriculumData?.quizzes) {
+    extractedMCQData = curriculumData.quizzes;
+  }
+
   const gameData = 
-    gameType === 'mcq' ? curriculumData?.quizzes || [] :
-    gameType === 'flashcards' ? curriculumData?.games?.flashcards || [] :
-    gameType === 'trap' ? curriculumData?.games?.spot_the_trap || [] : [];
+    gameType === 'mcq' ? extractedMCQData :
+    gameType === 'flashcards' ? (curriculumData?.games?.flashcards || []) :
+    gameType === 'trap' ? (curriculumData?.games?.spot_the_trap || []) : [];
 
   const isFinished = isExamMode ? isExamSubmitted : (currentIndex >= gameData.length);
 
-  // 🚀 DYNAMIC ATTEMPT CALCULATION
   const maxAllowed = curriculumData?.maxAttempts === 'unlimited' ? Infinity : (curriculumData?.maxAttempts || 1);
   const currentAttempts = curriculumData?.currentAttempts || 0;
-  // If they just submitted, we subtract 1 so the button hides immediately when they hit 0
   const remainingAfterSubmit = forceReviewMode ? (maxAllowed - currentAttempts) : (maxAllowed - currentAttempts - 1);
 
-  // 🚀 CRITICAL FIX: Sync State on Navigation
-  // This prevents the bug where React remembers the old exam state when you click a different exam
+  // Sync State on Navigation to prevent overlap
   useEffect(() => {
     if (forceReviewMode) {
       const hist = JSON.parse(localStorage.getItem(`psc_exam_history_${examId}`) || 'null');
@@ -67,29 +77,31 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
     }
   }, [forceReviewMode, examId]);
 
-  // Async Mistake Logging (Fires only after the exam is successfully submitted, NEVER on review)
   useEffect(() => {
-    if (isFinished && gameData.length > 0 && !forceReviewMode) {
-      if (!isExamMode && onMarkComplete) {
-        onMarkComplete(gameType, sessionLog);
-      }
+    const finalizeSession = async () => {
+      if (isFinished && gameData.length > 0 && !forceReviewMode) {
+        if (!isExamMode && onMarkComplete) {
+          onMarkComplete(gameType, sessionLog);
+        }
+        
+        if (mistakes.length > 0 && !curriculumData?.isRemedial) {
+          try {
+            const existingMistakes = JSON.parse(localStorage.getItem('psc_mistakes') || '[]');
+            const newUnique = mistakes.filter(m => !existingMistakes.some(em => em.question === m.question || (m.statement && em.statement === m.statement)));
 
-      if (mistakes.length > 0 && !curriculumData?.isRemedial) {
-        try {
-          const existingMistakes = JSON.parse(localStorage.getItem('psc_mistakes') || '[]');
-          const newUnique = mistakes.filter(m => !existingMistakes.some(em => em.question === m.question || (m.statement && em.statement === m.statement)));
-
-          if (newUnique.length > 0) {
-            localStorage.setItem('psc_mistakes', JSON.stringify([...existingMistakes, ...newUnique]));
-            addDoc(collection(db, 'users/demo_user/mistake_log'), {
-              examDate: serverTimestamp(), drillType: gameType,
-              mistakes_recorded: newUnique, total_errors: newUnique.length, status: 'pending_review'
-            });
-          }
-        } catch (error) { console.error("Telemetry Error:", error); }
+            if (newUnique.length > 0) {
+              localStorage.setItem('psc_mistakes', JSON.stringify([...existingMistakes, ...newUnique]));
+              await addDoc(collection(db, 'users/demo_user/mistake_log'), {
+                examDate: serverTimestamp(), drillType: gameType,
+                mistakes_recorded: newUnique, total_errors: newUnique.length, status: 'pending_review'
+              });
+            }
+          } catch (error) { console.error("Mistake Telemetry Logging Error:", error); }
+        }
       }
-    }
-  }, [isFinished, forceReviewMode]);
+    };
+    finalizeSession();
+  }, [isFinished, forceReviewMode, mistakes, gameData.length, isExamMode, onMarkComplete, sessionLog, gameType, curriculumData?.isRemedial]);
 
   const handleFinalSubmit = () => {
     let finalScore = 0;
@@ -118,7 +130,6 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
     setSessionLog(log); 
     setIsExamSubmitted(true);
 
-    // Save exact answers for Tactical Review 
     localStorage.setItem(`psc_exam_history_${examId}`, JSON.stringify({
       score: finalScore, answers: userAnswers, log: log
     }));
@@ -129,9 +140,15 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
   const handleNext = () => {
     if (isExamMode) {
       if (currentIndex === gameData.length - 1) handleFinalSubmit();
-      else { setSelectedAnswer(userAnswers[currentIndex + 1] || null); setCurrentIndex(prev => prev + 1); }
+      else { 
+        setSelectedAnswer(userAnswers[currentIndex + 1] || null); 
+        setCurrentIndex(prev => prev + 1); 
+      }
     } else {
-      setShowResult(false); setSelectedAnswer(null); setIsFlipped(false); setCurrentIndex(prev => prev + 1);
+      setShowResult(false); 
+      setSelectedAnswer(null); 
+      setIsFlipped(false); 
+      setCurrentIndex(prev => prev + 1);
     }
   };
 
@@ -140,9 +157,13 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
     else { setShowResult(true); setCurrentIndex(gameData.length); }
   };
 
-  // ---------------------------------------------------------
-  // 1. TACTICAL REVIEW UI (The Answer Key)
-  // ---------------------------------------------------------
+  // 🚀 FIX 3: Bulletproof Exit Handler
+  const handleExitClick = () => {
+    if (onExit) onExit();
+    else navigate('/arena'); 
+  };
+
+  // --- TACTICAL REVIEW UI ---
   if (isReviewMode) {
     return (
       <div className="w-full max-w-4xl mx-auto space-y-6 animate-in slide-in-from-bottom-8 pb-10">
@@ -151,11 +172,8 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
             <h3 className="font-black text-white text-xl">Tactical Answer Key</h3>
             <p className="text-slate-400 text-xs mt-1 uppercase tracking-widest">Final Score: {score} / {gameData.length}</p>
           </div>
-          <button 
-            onClick={() => forceReviewMode ? onExit() : setIsReviewMode(false)} 
-            className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-black uppercase tracking-widest transition flex items-center gap-2 border border-slate-700 shadow-inner"
-          >
-            <ArrowLeft size={16} /> {forceReviewMode ? "Return to Arena" : "Back to Score"}
+          <button onClick={() => forceReviewMode ? handleExitClick() : setIsReviewMode(false)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-sm font-bold transition flex items-center gap-2">
+            <ArrowLeft size={16} /> {forceReviewMode ? "Return to Arena" : "Back to Dashboard"}
           </button>
         </div>
 
@@ -205,9 +223,7 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
     );
   }
 
-  // ---------------------------------------------------------
-  // 2. FINAL SCORE SCREEN (With smart Re-Attempt button)
-  // ---------------------------------------------------------
+  // --- FINAL SCORE SCREEN ---
   if (isFinished || gameData.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center p-10 text-center animate-in zoom-in-95 duration-500 w-full h-full">
@@ -216,31 +232,28 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
         </div>
         <h2 className="text-3xl font-black text-white mb-2">Assessment Concluded!</h2>
         
-        {gameType !== 'flashcards' && (
+        {gameType !== 'flashcards' && gameData.length > 0 && (
           <p className="text-slate-300 text-lg mb-8 bg-slate-900 border border-slate-800 p-6 rounded-2xl mt-4">
             You scored <span className="font-black text-4xl text-brand-400 block mt-2">{score} <span className="text-xl text-slate-500">/ {gameData.length}</span></span>
           </p>
         )}
 
         <div className="flex flex-wrap gap-4 justify-center mt-2">
-          {isExamMode && (
+          {isExamMode && gameData.length > 0 && (
             <button onClick={() => setIsReviewMode(true)} className="px-6 py-4 bg-slate-800 hover:bg-slate-700 text-sky-400 font-black rounded-xl transition border border-sky-500/30 flex items-center gap-2">
               <Eye size={20} /> Review Answers
             </button>
           )}
           
-          {/* Automatically hides if they exhausted attempts */}
-          {isExamMode && remainingAfterSubmit > 0 && (
-            <button 
-              onClick={() => window.location.href = window.location.pathname} // Cleans the URL and forces fresh mount
-              className="px-6 py-4 bg-amber-600 hover:bg-amber-500 text-white font-black rounded-xl transition shadow-[0_0_20px_rgba(245,158,11,0.3)] flex items-center gap-2"
-            >
+          {isExamMode && remainingAfterSubmit > 0 && gameData.length > 0 && (
+            <button onClick={() => window.location.href = window.location.pathname} className="px-6 py-4 bg-amber-600 hover:bg-amber-500 text-white font-black rounded-xl transition shadow-[0_0_20px_rgba(245,158,11,0.3)] flex items-center gap-2">
               <RefreshCw size={20} /> Re-Attempt ({remainingAfterSubmit === Infinity ? '∞' : remainingAfterSubmit} Left)
             </button>
           )}
 
-          <button onClick={onExit} className="px-8 py-4 bg-brand-500 hover:bg-brand-600 text-slate-950 font-black rounded-xl transition shadow-lg flex items-center gap-2">
-            Return to Arena <ArrowRight size={18} />
+          {/* 🚀 FIX 4: Updated button to use handleExitClick */}
+          <button onClick={handleExitClick} className="px-8 py-4 bg-brand-500 hover:bg-brand-600 text-slate-950 font-black rounded-xl transition shadow-lg flex items-center gap-2">
+            Return to Dashboard <ArrowRight size={18} />
           </button>
         </div>
       </div>
@@ -249,9 +262,7 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
 
   const currentItem = gameData[currentIndex];
 
-  // ---------------------------------------------------------
-  // 3. MCQ MODE UI
-  // ---------------------------------------------------------
+  // --- MULTIPLE CHOICE LOGIC ---
   if (gameType === 'mcq') {
     const targetAnswer = currentItem.correct_answer || currentItem.correct;
 
@@ -330,77 +341,132 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
     );
   }
 
-  // ---------------------------------------------------------
-  // 4. SPOT THE TRAP MODE UI
-  // ---------------------------------------------------------
+  // --- SPOT THE TRAP LOGIC ---
   if (gameType === 'trap') {
-    const handleTrapClick = (guessedTrue) => {
+    const handleTrapClick = (guess) => {
       if (showResult) return;
-      setSelectedAnswer(guessedTrue);
+      const isCorrect = guess === currentItem.is_true;
+      setSelectedAnswer(guess);
       setShowResult(true);
 
-      if (guessedTrue === currentItem.is_true) {
+      if (isCorrect) {
         setScore(prev => prev + 1);
         setSessionLog(prev => ({ ...prev, correct: [...prev.correct, currentItem] }));
       } else {
         setSessionLog(prev => ({ ...prev, incorrect: [...prev.incorrect, currentItem] }));
-        setMistakes(prev => [...prev, { 
-          type: 'trap', statement: currentItem.statement, 
-          correct_answer: currentItem.is_true ? "FACT (True)" : "TRAP (False)", 
-          student_answer: guessedTrue ? "FACT (True)" : "TRAP (False)", 
-          explanation: currentItem.catch, streak: 0
+        setMistakes(prev => [...prev, {
+          type: 'trap', statement: currentItem.statement,
+          is_true: currentItem.is_true, catch: currentItem.catch, streak: 0
         }]);
       }
     };
 
     return (
       <div className="w-full max-w-3xl mx-auto space-y-8 animate-in slide-in-from-right-8 fade-in duration-300">
-        <div className="flex flex-col sm:flex-row justify-between items-center gap-4 text-sm font-bold text-slate-500 bg-slate-900 px-5 py-4 rounded-2xl border border-slate-800 shadow-inner">
-          <div className="flex items-center gap-6">
-            <span className="bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-white">Statement {currentIndex + 1} / {gameData.length}</span>
-            <span className="text-brand-400 uppercase tracking-widest">Score: {score}</span>
-          </div>
-          <TacticalTimer timeLimitMinutes={curriculumData?.timeLimitMinutes || 5} onTimeUp={handleTimeUp} />
+        <div className="flex justify-between items-center bg-slate-900 px-5 py-4 rounded-2xl border border-slate-800 shadow-inner">
+          <span className="bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-white font-bold text-sm">Trap {currentIndex + 1} / {gameData.length}</span>
+          <span className="text-brand-400 font-bold uppercase tracking-widest text-sm">Score: {score}</span>
         </div>
 
         <div className="bg-slate-800 p-10 rounded-3xl border-2 border-slate-700 text-center shadow-xl">
-          <h3 className="text-2xl font-black text-white leading-relaxed">"{currentItem.statement}"</h3>
-        </div>
-        {!showResult ? (
+          <h3 className="text-2xl md:text-3xl font-black text-white leading-relaxed mb-10">"{currentItem.statement}"</h3>
+          
           <div className="grid grid-cols-2 gap-6">
-            <button onClick={() => handleTrapClick(true)} className="p-6 bg-emerald-950/40 border-2 border-emerald-500/50 hover:bg-emerald-600 hover:text-white text-emerald-400 font-bold rounded-2xl transition flex flex-col items-center gap-3 text-lg active:scale-95"><CheckCircle2 size={32} /> FACT (True)</button>
-            <button onClick={() => handleTrapClick(false)} className="p-6 bg-rose-950/40 border-2 border-rose-500/50 hover:bg-rose-600 hover:text-white text-rose-400 font-bold rounded-2xl transition flex flex-col items-center gap-3 text-lg active:scale-95"><ShieldAlert size={32} /> TRAP (False)</button>
+            <button 
+              onClick={() => handleTrapClick(true)} 
+              disabled={showResult}
+              className={`p-6 rounded-2xl border-2 font-black text-xl transition ${
+                showResult 
+                  ? currentItem.is_true 
+                    ? 'bg-emerald-950/50 border-emerald-500 text-emerald-400' 
+                    : selectedAnswer === true ? 'bg-rose-950/50 border-rose-500 text-rose-400 opacity-50' : 'bg-slate-950 border-slate-800 text-slate-600'
+                  : 'bg-slate-900 border-slate-700 hover:border-emerald-500 text-slate-200 hover:text-emerald-400'
+              }`}
+            >
+              FACT (True)
+            </button>
+            <button 
+              onClick={() => handleTrapClick(false)} 
+              disabled={showResult}
+              className={`p-6 rounded-2xl border-2 font-black text-xl transition ${
+                showResult 
+                  ? !currentItem.is_true 
+                    ? 'bg-emerald-950/50 border-emerald-500 text-emerald-400' 
+                    : selectedAnswer === false ? 'bg-rose-950/50 border-rose-500 text-rose-400 opacity-50' : 'bg-slate-950 border-slate-800 text-slate-600'
+                  : 'bg-slate-900 border-slate-700 hover:border-rose-500 text-slate-200 hover:text-rose-400'
+              }`}
+            >
+              TRAP (False)
+            </button>
           </div>
-        ) : (
-          <div className="mt-8 p-8 bg-slate-900 border border-slate-700 rounded-3xl animate-in slide-in-from-bottom-4 text-center shadow-xl">
-            {selectedAnswer === currentItem.is_true ? <div className="text-emerald-400 font-black text-2xl mb-3 flex items-center justify-center gap-2"><CheckCircle2 size={28}/> Correct Analysis!</div> : <div className="text-rose-400 font-black text-2xl mb-3 flex items-center justify-center gap-2"><XCircle size={28}/> You fell for the trap!</div>}
-            <p className="text-slate-300 text-lg mb-8 bg-slate-950 p-6 rounded-2xl inline-block text-left w-full leading-relaxed border border-slate-800 shadow-inner"><span className="font-bold text-amber-400 text-sm uppercase block mb-2 tracking-widest">The Catch:</span> {currentItem.catch}</p>
-            <button onClick={handleNext} className="w-full py-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-lg rounded-xl flex items-center justify-center gap-3 transition shadow-[0_0_20px_rgba(245,158,11,0.3)] active:scale-95">Next Statement <ArrowRight size={20} /></button>
+        </div>
+
+        {showResult && (
+          <div className={`p-6 rounded-2xl animate-in slide-in-from-bottom-4 border ${selectedAnswer === currentItem.is_true ? 'bg-emerald-950/20 border-emerald-500/30' : 'bg-rose-950/20 border-rose-500/30'}`}>
+            <h4 className={`text-sm font-bold uppercase tracking-widest mb-2 flex items-center gap-2 ${selectedAnswer === currentItem.is_true ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {selectedAnswer === currentItem.is_true ? <CheckCircle2 size={18}/> : <AlertOctagon size={18}/>}
+              {selectedAnswer === currentItem.is_true ? 'Spot On!' : 'You fell for the trap!'}
+            </h4>
+            <p className="text-slate-300 text-lg leading-relaxed"><strong className="text-amber-400">The Catch:</strong> {currentItem.catch}</p>
+            <button onClick={handleNext} className="w-full mt-6 py-4 bg-slate-800 text-white font-black text-lg rounded-xl flex items-center justify-center gap-3 hover:bg-slate-700 transition">
+              Next Trap <ArrowRight size={20} />
+            </button>
           </div>
         )}
       </div>
     );
   }
 
-  // ---------------------------------------------------------
-  // 5. FLASHCARDS MODE UI
-  // ---------------------------------------------------------
+  // --- FLASHCARDS LOGIC ---
   if (gameType === 'flashcards') {
+    const handleFlashcardResult = (success) => {
+      if (success) {
+        setScore(prev => prev + 1);
+        setSessionLog(prev => ({ ...prev, correct: [...prev.correct, currentItem] }));
+      } else {
+        setSessionLog(prev => ({ ...prev, incorrect: [...prev.incorrect, currentItem] }));
+      }
+      setIsFlipped(false);
+      handleNext();
+    };
+
     return (
-      <div className="w-full max-w-2xl mx-auto space-y-8 animate-in slide-in-from-right-8 fade-in duration-300 flex flex-col items-center">
-        <div className="text-sm font-bold text-slate-500 bg-slate-900 px-5 py-3 rounded-xl border border-slate-800 w-full text-center shadow-inner uppercase tracking-widest">Card <span className="text-sky-400 mx-1">{currentIndex + 1}</span> of {gameData.length}</div>
-        <div onClick={() => setIsFlipped(!isFlipped)} className="w-full aspect-[4/3] bg-slate-900 border border-slate-700 rounded-3xl cursor-pointer hover:border-sky-500 transition-all duration-500 flex flex-col items-center justify-center p-10 text-center shadow-2xl group relative overflow-hidden">
-          <div className="absolute top-6 right-6 text-slate-600 group-hover:text-sky-400 transition"><RotateCw size={24} /></div>
-          {!isFlipped ? (
-            <div className="animate-in fade-in duration-300"><span className="text-xs font-bold text-sky-400 uppercase tracking-widest mb-5 block bg-sky-500/10 px-3 py-1 rounded-full w-fit mx-auto border border-sky-500/20">Term / Concept</span><h3 className="text-3xl md:text-4xl font-black text-white leading-snug">{currentItem.front}</h3></div>
-          ) : (
-            <div className="animate-in fade-in duration-300"><span className="text-xs font-bold text-emerald-400 uppercase tracking-widest mb-5 block bg-emerald-500/10 px-3 py-1 rounded-full w-fit mx-auto border border-emerald-500/20">Definition</span><p className="text-xl font-semibold text-slate-200 leading-relaxed">{currentItem.back}</p></div>
-          )}
+      <div className="w-full max-w-2xl mx-auto space-y-8 animate-in slide-in-from-bottom-8 fade-in duration-300">
+        <div className="flex justify-between items-center text-sm font-bold text-slate-500 mb-4 px-2">
+          <span>Card {currentIndex + 1} of {gameData.length}</span>
+          <span className="text-brand-400 uppercase tracking-widest">Mastered: {score}</span>
         </div>
-        <button onClick={handleNext} className="px-10 py-4 bg-sky-600 hover:bg-sky-500 text-white font-black text-lg rounded-2xl flex items-center gap-3 transition w-full justify-center shadow-[0_0_20px_rgba(2,132,199,0.3)] active:scale-95">Next Card <ArrowRight size={20} /></button>
+
+        <div className="relative w-full aspect-[4/3] perspective-1000 cursor-pointer group" onClick={() => setIsFlipped(!isFlipped)}>
+          <div className={`w-full h-full relative preserve-3d transition-transform duration-500 ${isFlipped ? 'rotate-y-180' : ''}`}>
+            
+            <div className="absolute inset-0 backface-hidden bg-civil-card border-2 border-slate-700 rounded-3xl p-10 flex flex-col items-center justify-center text-center shadow-xl group-hover:border-brand-500/50 transition">
+              <Layers size={32} className="text-brand-400 mb-6 opacity-50" />
+              <h3 className="text-2xl md:text-3xl font-black text-white">{currentItem.front}</h3>
+              <p className="text-slate-500 text-sm mt-8 uppercase tracking-widest font-bold flex items-center gap-2"><RotateCw size={14}/> Click to flip</p>
+            </div>
+
+            <div className="absolute inset-0 backface-hidden rotate-y-180 bg-brand-950/20 border-2 border-brand-500/40 rounded-3xl p-10 flex flex-col items-center justify-center text-center shadow-[0_0_30px_rgba(245,158,11,0.1)]">
+              <h3 className="text-xl md:text-2xl font-bold text-brand-100 mb-6 leading-relaxed">{currentItem.back}</h3>
+              {currentItem.hint && <p className="text-slate-400 text-sm italic border-t border-brand-500/20 pt-4 mt-2 max-w-sm">{currentItem.hint}</p>}
+            </div>
+            
+          </div>
+        </div>
+
+        {isFlipped && (
+          <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-bottom-2 fade-in">
+            <button onClick={(e) => { e.stopPropagation(); handleFlashcardResult(false); }} className="p-4 bg-slate-900 border border-slate-700 hover:border-rose-500 hover:bg-rose-950/30 text-rose-400 font-bold rounded-xl transition flex items-center justify-center gap-2">
+              <XCircle size={18} /> Needs Practice
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); handleFlashcardResult(true); }} className="p-4 bg-brand-500 hover:bg-brand-400 text-slate-950 font-black rounded-xl transition shadow-lg flex items-center justify-center gap-2">
+              Got It <CheckCircle2 size={18} />
+            </button>
+          </div>
+        )}
       </div>
     );
   }
-  
+
   return null;
 }
