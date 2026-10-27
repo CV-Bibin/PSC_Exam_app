@@ -456,7 +456,7 @@ const handleSaveQuestion = (q) => {
     );
   }
 
-  // --- FLASHCARDS LOGIC ---
+ // --- FLASHCARDS LOGIC ---
   if (gameType === 'flashcards') {
     const handleFlashcardResult = (success) => {
       if (success) {
@@ -466,39 +466,43 @@ const handleSaveQuestion = (q) => {
         setSessionLog(prev => ({ ...prev, incorrect: [...prev.incorrect, currentItem] }));
       }
       setIsFlipped(false);
-      handleNext();
+      // Added a tiny delay so the card doesn't snap instantly to the next question while flipping
+      setTimeout(() => handleNext(), 150); 
     };
 
     return (
-      <div className="w-full max-w-2xl mx-auto space-y-8 animate-in slide-in-from-bottom-8 fade-in duration-300">
-        <div className="flex justify-between items-center text-sm font-bold text-slate-500 mb-4 px-2">
-          <span>Card {currentIndex + 1} of {gameData.length}</span>
-          <span className="text-brand-400 uppercase tracking-widest">Mastered: {score}</span>
+      <div className="w-full max-w-2xl mx-auto space-y-8 animate-in slide-in-from-right-8 fade-in duration-300 flex flex-col items-center">
+        <div className="text-sm font-bold text-slate-500 bg-slate-900 px-5 py-3 rounded-xl border border-slate-800 w-full text-center shadow-inner uppercase tracking-widest">
+          Card <span className="text-sky-400 mx-1">{currentIndex + 1}</span> of {gameData.length}
         </div>
-
-        <div className="relative w-full aspect-[4/3] perspective-1000 cursor-pointer group" onClick={() => setIsFlipped(!isFlipped)}>
-          <div className={`w-full h-full relative preserve-3d transition-transform duration-500 ${isFlipped ? 'rotate-y-180' : ''}`}>
+        
+        {/* 🚀 FIXED: Guaranteed 3D Transform using strict Tailwind brackets */}
+        <div className="relative w-full aspect-[4/3] [perspective:1000px] cursor-pointer group" onClick={() => setIsFlipped(!isFlipped)}>
+          <div className={`w-full h-full relative transition-transform duration-500 [transform-style:preserve-3d] ${isFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
             
-            <div className="absolute inset-0 backface-hidden bg-civil-card border-2 border-slate-700 rounded-3xl p-10 flex flex-col items-center justify-center text-center shadow-xl group-hover:border-brand-500/50 transition">
-              <Layers size={32} className="text-brand-400 mb-6 opacity-50" />
-              <h3 className="text-2xl md:text-3xl font-black text-white">{currentItem.front}</h3>
+            {/* Front of Card */}
+            <div className="absolute inset-0 [backface-visibility:hidden] bg-slate-900 border-2 border-slate-700 rounded-3xl p-10 flex flex-col items-center justify-center text-center shadow-xl group-hover:border-sky-500/50 transition">
+              <span className="text-xs font-bold text-sky-400 uppercase tracking-widest mb-5 block bg-sky-500/10 px-3 py-1 rounded-full border border-sky-500/20">Term / Concept</span>
+              <h3 className="text-3xl md:text-4xl font-black text-white leading-snug">{currentItem.front}</h3>
               <p className="text-slate-500 text-sm mt-8 uppercase tracking-widest font-bold flex items-center gap-2"><RotateCw size={14}/> Click to flip</p>
             </div>
 
-            <div className="absolute inset-0 backface-hidden rotate-y-180 bg-brand-950/20 border-2 border-brand-500/40 rounded-3xl p-10 flex flex-col items-center justify-center text-center shadow-[0_0_30px_rgba(245,158,11,0.1)]">
-              <h3 className="text-xl md:text-2xl font-bold text-brand-100 mb-6 leading-relaxed">{currentItem.back}</h3>
-              {currentItem.hint && <p className="text-slate-400 text-sm italic border-t border-brand-500/20 pt-4 mt-2 max-w-sm">{currentItem.hint}</p>}
+            {/* Back of Card */}
+            <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] bg-slate-950 border-2 border-emerald-500/40 rounded-3xl p-10 flex flex-col items-center justify-center text-center shadow-[0_0_30px_rgba(16,185,129,0.15)]">
+              <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest mb-5 block bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">Definition</span>
+              <p className="text-xl font-semibold text-slate-200 leading-relaxed">{currentItem.back}</p>
+              {currentItem.hint && <p className="text-slate-400 text-sm italic border-t border-emerald-500/20 pt-4 mt-4 max-w-sm">{currentItem.hint}</p>}
             </div>
             
           </div>
         </div>
 
         {isFlipped && (
-          <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-bottom-2 fade-in">
+          <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-bottom-2 fade-in w-full">
             <button onClick={(e) => { e.stopPropagation(); handleFlashcardResult(false); }} className="p-4 bg-slate-900 border border-slate-700 hover:border-rose-500 hover:bg-rose-950/30 text-rose-400 font-bold rounded-xl transition flex items-center justify-center gap-2">
               <XCircle size={18} /> Needs Practice
             </button>
-            <button onClick={(e) => { e.stopPropagation(); handleFlashcardResult(true); }} className="p-4 bg-brand-500 hover:bg-brand-400 text-slate-950 font-black rounded-xl transition shadow-lg flex items-center justify-center gap-2">
+            <button onClick={(e) => { e.stopPropagation(); handleFlashcardResult(true); }} className="p-4 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black rounded-xl transition shadow-lg flex items-center justify-center gap-2">
               Got It <CheckCircle2 size={18} />
             </button>
           </div>
