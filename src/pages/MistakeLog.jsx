@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { History, CheckCircle2, RotateCcw, Target, AlertOctagon, BrainCircuit, Lock } from 'lucide-react';
+import { History, CheckCircle2, RotateCcw, Target, AlertOctagon, BrainCircuit, Lock, ChevronDown, Lightbulb } from 'lucide-react';
 import GameEngine from '../components/GameEngine';
 
 export default function MistakeLog() {
@@ -7,6 +7,9 @@ export default function MistakeLog() {
   const [isDrillActive, setIsDrillActive] = useState(false);
   const [drillCurriculum, setDrillCurriculum] = useState(null); 
   const [nextAvailableDate, setNextAvailableDate] = useState(null);
+  
+  // 🚀 UI Optimization
+  const [visibleCount, setVisibleCount] = useState(15);
 
   useEffect(() => {
     // 1. Load Mistakes
@@ -16,7 +19,8 @@ export default function MistakeLog() {
         ...m,
         streak: m.streak || 0,
         correct_answer: m.correct_answer || m.correct || m.fact || "Answer missing",
-      }));
+      })).reverse(); // Show newest mistakes at the top
+      
       setMistakes(formatted);
     };
     loadMistakes();
@@ -69,10 +73,13 @@ export default function MistakeLog() {
       [preparedQuestions[i], preparedQuestions[j]] = [preparedQuestions[j], preparedQuestions[i]];
     }
 
+    // 🚀 FATIGUE CAP: Limit to 20 random questions per drill max!
+    const cappedQuestions = preparedQuestions.slice(0, 20);
+
     setDrillCurriculum({
       isRemedial: true,
-      timeLimitMinutes: Math.ceil(activeMistakes.length * 1.5),
-      quizzes: preparedQuestions
+      timeLimitMinutes: Math.ceil(cappedQuestions.length * 1.5),
+      quizzes: cappedQuestions
     });
     
     setIsDrillActive(true);
@@ -110,9 +117,9 @@ export default function MistakeLog() {
     setMistakes(updatedMistakes);
     setNextAvailableDate(nextDate); 
     
-    localStorage.setItem('psc_mistakes', JSON.stringify(updatedMistakes));
+    localStorage.setItem('psc_mistakes', JSON.stringify(updatedMistakes.reverse())); // Store original order
     localStorage.setItem('psc_last_remedial_drill', now.toISOString());
-    localStorage.setItem('psc_mastered_count', (masteredCount + newlyMastered).toString());
+    localStorage.setItem('psc_mastered_count', (parseInt(masteredCount) + newlyMastered).toString());
   };
 
   if (isDrillActive && drillCurriculum) {
@@ -127,7 +134,6 @@ export default function MistakeLog() {
           <GameEngine 
             gameType="mcq" 
             curriculumData={drillCurriculum} 
-            // 🚀 Now waits for you to click "Return to Dashboard" before closing
             onExit={() => { setIsDrillActive(false); setDrillCurriculum(null); }} 
             onMarkComplete={handleDrillComplete}
             isExamMode={false} 
@@ -152,7 +158,7 @@ export default function MistakeLog() {
               </div>
               <h1 className="text-4xl md:text-5xl font-black text-white tracking-tight">Mistake Log & Mastery</h1>
             </div>
-            <p className="text-base text-slate-400 font-medium ml-1">Spaced repetition engine. Clear an error 3 consecutive times to permanently archive it.</p>
+            <p className="text-base text-slate-400 font-medium ml-1 max-w-lg">Spaced repetition engine. Review your errors below. Clear a mistake 3 consecutive times in the Remedial Drill to permanently archive it.</p>
           </div>
           
           <div className="flex gap-4">
@@ -176,7 +182,7 @@ export default function MistakeLog() {
             {/* WEEKLY LOCKOUT UI */}
             {nextAvailableDate ? (
               <button disabled className="px-6 py-3 bg-slate-950 border border-slate-800 text-slate-500 font-black rounded-xl transition flex items-center gap-2 cursor-not-allowed">
-                <Lock size={18} /> Locked: {daysUntilNextDrill} Days Remaining
+                <Lock size={18} /> Locked: {daysUntilNextDrill} Day{daysUntilNextDrill > 1 ? 's' : ''} Remaining
               </button>
             ) : (
               <button onClick={launchShuffledDrill} className="px-6 py-3 bg-brand-500 hover:bg-brand-400 text-slate-950 font-black rounded-xl shadow-[0_0_20px_rgba(245,158,11,0.3)] transition active:scale-95 flex items-center gap-2">
@@ -186,7 +192,7 @@ export default function MistakeLog() {
           </div>
 
           <div className="grid grid-cols-1 gap-4">
-            {activeMistakes.map((mistake, idx) => (
+            {activeMistakes.slice(0, visibleCount).map((mistake, idx) => (
               <div key={idx} className="bg-slate-900/60 backdrop-blur-md border border-slate-700/50 p-6 rounded-3xl flex flex-col md:flex-row justify-between gap-6 group hover:border-slate-500 transition-colors">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-3">
@@ -196,9 +202,19 @@ export default function MistakeLog() {
                   </div>
                   <h4 className="text-lg font-bold text-white mb-4 leading-relaxed">{mistake.question || mistake.statement}</h4>
                   
-                  <div className="bg-emerald-950/20 border border-emerald-900/50 p-4 rounded-xl">
-                    <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest block mb-1">Correct Answer / Fact:</span>
-                    <p className="text-emerald-100 font-semibold">{mistake.correct_answer}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-emerald-950/20 border border-emerald-900/50 p-4 rounded-xl">
+                      <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest block mb-1">Correct Answer / Fact:</span>
+                      <p className="text-emerald-100 font-semibold">{mistake.correct_answer}</p>
+                    </div>
+
+                    {/* 🚀 NEW: Added the Explanation Box so they can study */}
+                    {mistake.explanation && (
+                      <div className="bg-slate-950/50 border border-slate-800 p-4 rounded-xl">
+                        <span className="text-[10px] font-black text-sky-500 uppercase tracking-widest block mb-1 flex items-center gap-1"><Lightbulb size={12}/> Context:</span>
+                        <p className="text-slate-300 text-sm">{mistake.explanation}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -220,6 +236,19 @@ export default function MistakeLog() {
               </div>
             ))}
           </div>
+
+          {/* 🚀 NEW: Load More Pagination */}
+          {visibleCount < activeMistakes.length && (
+            <div className="flex justify-center pt-4">
+              <button 
+                onClick={() => setVisibleCount(prev => prev + 15)}
+                className="px-6 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-bold text-xs uppercase tracking-widest rounded-xl transition flex items-center gap-2 shadow-lg"
+              >
+                <ChevronDown size={16} /> Load Older Mistakes
+              </button>
+            </div>
+          )}
+
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-slate-900/40 rounded-[2.5rem] border border-slate-800 border-dashed">

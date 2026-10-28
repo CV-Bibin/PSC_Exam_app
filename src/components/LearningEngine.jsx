@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm';
 import {
   CheckCircle2, Zap, AlertOctagon, FastForward, Highlighter,
   BookmarkPlus, Bot, X, Bookmark, ChevronRight, ChevronLeft, BookOpen,
-  Calculator, LayoutGrid, HelpCircle, Image as ImageIcon, Lightbulb, Gamepad2, Layers
+  Calculator, LayoutGrid, HelpCircle, Image as ImageIcon, Lightbulb, Gamepad2, Layers, RotateCcw
 } from 'lucide-react';
 import 'katex/dist/katex.min.css';
 import { BlockMath } from 'react-katex';
@@ -55,7 +55,6 @@ const SlideRenderer = ({
 }) => {
   const data = chapter.content_data;
 
-  // Fallback for older data that doesn't have the new 'type' structure
   if (!chapter.type || !data) {
     return (
       <div className="prose prose-invert prose-lg max-w-none text-slate-200">
@@ -64,7 +63,6 @@ const SlideRenderer = ({
     );
   }
 
-  // Image Renderer (Fixed Cropping)
   const ImageBlock = () => chapter.image_url ? (
     <div className="w-full mb-8 rounded-2xl overflow-hidden border border-slate-700 bg-slate-950/80 flex justify-center shadow-lg">
       <img src={chapter.image_url} alt={chapter.heading} className="w-full h-auto object-contain max-h-[500px]" />
@@ -141,17 +139,12 @@ const SlideRenderer = ({
         <div className="space-y-6">
           <ImageBlock />
           <div className="bg-amber-950/20 border border-amber-500/30 rounded-3xl p-8 md:p-10 flex flex-col md:flex-row items-center gap-10 shadow-lg">
-
             <div className="flex-1 w-full text-center bg-slate-900 py-8 px-4 rounded-3xl border border-amber-500/20 shadow-inner relative overflow-hidden flex flex-col justify-center min-h-[150px]">
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent opacity-50"></div>
-
-              {/* FIXED: Reduced font scale to prevent scrollbars */}
               <div className="text-amber-400 overflow-x-auto custom-scrollbar w-full text-sm sm:text-base lg:text-lg px-2">
                 <BlockMath math={data.equation || ''} />
               </div>
-
             </div>
-
             <div className="flex-1 w-full space-y-4">
               <h5 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
                 <Calculator size={16} /> Variables
@@ -163,7 +156,6 @@ const SlideRenderer = ({
                 </div>
               ))}
             </div>
-
           </div>
           {data.explanation && <p className="text-slate-300 text-base md:text-lg text-center mt-6 italic px-4">{data.explanation}</p>}
         </div>
@@ -175,7 +167,6 @@ const SlideRenderer = ({
           <ImageBlock />
           <div className="space-y-4">
             {data.points?.map((pt, i) => {
-              // Backward compatibility check for older string-based takeaways
               const isObject = typeof pt === 'object' && pt !== null;
               const term = isObject ? pt.term : null;
               const desc = isObject ? pt.desc : pt;
@@ -280,31 +271,65 @@ const SlideRenderer = ({
       );
     }
 
+    // 🚀 THE UPGRADED MATCH THE PAIRS LOGIC
     case 'interactive_match': {
       if (!data.pairs) return null;
 
-      // Stabilize scrambling by sorting alphabetically so it doesn't jump around on re-renders
       const rightOptions = [...data.pairs].map(p => p.right).sort((a, b) => a.localeCompare(b));
+      
+      const userPairs = matchGameState.userPairs || {};
+      const isSubmitted = matchGameState.isSubmitted || false;
+      const allCorrect = matchGameState.allCorrect || false;
 
-      const handleMatchClick = (side, text, index) => {
-        if (matchGameState.matched.includes(text)) return;
+      // Helper to assign a Number Badge to paired items
+      const getPairIndex = (text, side) => {
+        const keys = Object.keys(userPairs);
+        for (let i = 0; i < keys.length; i++) {
+          if (side === 'left' && keys[i] === text) return i + 1;
+          if (side === 'right' && userPairs[keys[i]] === text) return i + 1;
+        }
+        return null;
+      };
+
+      const handleMatchClick = (side, text) => {
+        if (isSubmitted) return;
 
         if (side === 'left') {
-          setMatchGameState({ ...matchGameState, selectedLeft: text });
-        } else if (side === 'right' && matchGameState.selectedLeft) {
-          const correctPair = data.pairs.find(p => p.left === matchGameState.selectedLeft);
-          if (correctPair && correctPair.right === text) {
-            setMatchGameState({
-              selectedLeft: null,
-              matched: [...matchGameState.matched, matchGameState.selectedLeft, text]
-            });
-          } else {
+          // Toggle off if they click the already selected left item
+          if (matchGameState.selectedLeft === text) {
             setMatchGameState({ ...matchGameState, selectedLeft: null });
+          } else {
+            setMatchGameState({ ...matchGameState, selectedLeft: text });
           }
+        } else if (side === 'right' && matchGameState.selectedLeft) {
+          const newUserPairs = { ...userPairs };
+          
+          // Un-pair if this Right option is already attached to a different Left option
+          const existingLeft = Object.keys(newUserPairs).find(k => newUserPairs[k] === text);
+          if (existingLeft) delete newUserPairs[existingLeft];
+
+          // Set the new pair!
+          newUserPairs[matchGameState.selectedLeft] = text;
+          
+          setMatchGameState({
+            ...matchGameState,
+            selectedLeft: null,
+            userPairs: newUserPairs
+          });
         }
       };
 
-      const isFullyMatched = matchGameState.matched.length === (data.pairs.length * 2);
+      const handleSubmit = () => {
+        const correctCount = data.pairs.filter(p => userPairs[p.left] === p.right).length;
+        const isPerfect = correctCount === data.pairs.length;
+        setMatchGameState({ ...matchGameState, isSubmitted: true, selectedLeft: null, allCorrect: isPerfect, correctCount });
+      };
+
+      const handleTryAgain = () => {
+        setMatchGameState({ selectedLeft: null, userPairs: {}, isSubmitted: false, allCorrect: false });
+      };
+
+      const isFullyMatched = Object.keys(userPairs).length === data.pairs.length;
 
       return (
         <div className="bg-slate-900/80 border border-brand-500/30 p-8 rounded-3xl max-w-4xl mx-auto shadow-2xl">
@@ -312,7 +337,7 @@ const SlideRenderer = ({
             <div className="p-3 bg-brand-500/20 rounded-xl text-brand-400"><Gamepad2 size={28} /></div>
             <div>
               <h3 className="text-2xl font-black text-white">Match the Pairs</h3>
-              <p className="text-sm text-slate-400">{data.instructions || "Select an item on the left, then click its match on the right."}</p>
+              <p className="text-sm text-slate-400">{data.instructions || "Group all the items together, then click Submit to check your answers."}</p>
             </div>
           </div>
 
@@ -320,50 +345,99 @@ const SlideRenderer = ({
             {/* Left Column */}
             <div className="space-y-3">
               {data.pairs.map((pair, i) => {
-                const isMatched = matchGameState.matched.includes(pair.left);
+                const pairNum = getPairIndex(pair.left, 'left');
                 const isSelected = matchGameState.selectedLeft === pair.left;
+                const isCorrect = isSubmitted && userPairs[pair.left] === pair.right;
+
+                let btnClass = "bg-slate-950 border-slate-700 text-slate-300 hover:border-brand-400 hover:bg-slate-800";
+                if (isSubmitted) {
+                  btnClass = isCorrect ? "bg-emerald-950/30 border-emerald-500/50 text-emerald-400" : "bg-rose-950/30 border-rose-500/50 text-rose-400";
+                } else if (isSelected) {
+                  btnClass = "bg-brand-500/20 border-brand-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)] scale-[1.02]";
+                } else if (pairNum) {
+                  btnClass = "bg-indigo-950/30 border-indigo-500/50 text-indigo-300";
+                }
 
                 return (
                   <button
                     key={`l-${i}`}
-                    onClick={() => handleMatchClick('left', pair.left, i)}
-                    disabled={isMatched}
-                    className={`w-full p-4 rounded-xl text-left font-semibold transition border-2
-                      ${isMatched ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-500 opacity-50'
-                        : isSelected ? 'bg-brand-500/20 border-brand-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)]'
-                          : 'bg-slate-950 border-slate-700 text-slate-300 hover:border-brand-400 hover:bg-slate-800'}`}
+                    onClick={() => handleMatchClick('left', pair.left)}
+                    disabled={isSubmitted}
+                    className={`w-full p-4 rounded-xl text-left font-semibold transition-all border-2 flex items-center gap-3 ${btnClass}`}
                   >
-                    {pair.left}
+                    {pairNum && (
+                      <span className={`w-6 h-6 shrink-0 rounded-full text-xs flex items-center justify-center font-black ${isSubmitted ? (isCorrect ? 'bg-emerald-500 text-slate-950' : 'bg-rose-500 text-slate-950') : 'bg-indigo-500 text-slate-950'}`}>
+                        {pairNum}
+                      </span>
+                    )}
+                    <span>{pair.left}</span>
                   </button>
                 )
               })}
             </div>
 
-            {/* Right Column (Scrambled) */}
+            {/* Right Column */}
             <div className="space-y-3">
               {rightOptions.map((rightText, i) => {
-                const isMatched = matchGameState.matched.includes(rightText);
+                const pairNum = getPairIndex(rightText, 'right');
+                const correspondingLeft = Object.keys(userPairs).find(k => userPairs[k] === rightText);
+                const correctPairForThisLeft = data.pairs.find(p => p.left === correspondingLeft);
+                const isCorrect = isSubmitted && correctPairForThisLeft?.right === rightText;
+
+                let btnClass = "bg-slate-950 border-slate-800 text-slate-500";
+                if (isSubmitted) {
+                  if (correspondingLeft) {
+                    btnClass = isCorrect ? "bg-emerald-950/30 border-emerald-500/50 text-emerald-400" : "bg-rose-950/30 border-rose-500/50 text-rose-400";
+                  } else {
+                    btnClass = "bg-slate-950 border-slate-800 text-slate-600 opacity-50";
+                  }
+                } else if (pairNum) {
+                  btnClass = "bg-indigo-950/30 border-indigo-500/50 text-indigo-300 hover:border-indigo-400 cursor-pointer";
+                } else if (matchGameState.selectedLeft) {
+                  btnClass = "bg-slate-950 border-sky-700 text-slate-300 hover:border-sky-400 hover:bg-slate-800 cursor-pointer shadow-[0_0_15px_rgba(14,165,233,0.1)]";
+                }
 
                 return (
                   <button
                     key={`r-${i}`}
-                    onClick={() => handleMatchClick('right', rightText, i)}
-                    disabled={isMatched || !matchGameState.selectedLeft}
-                    className={`w-full p-4 rounded-xl text-left font-semibold transition border-2
-                      ${isMatched ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-500 opacity-50'
-                        : matchGameState.selectedLeft ? 'bg-slate-950 border-sky-700 text-slate-300 hover:border-sky-400 hover:bg-slate-800 cursor-pointer'
-                          : 'bg-slate-950 border-slate-800 text-slate-500 cursor-not-allowed'}`}
+                    onClick={() => handleMatchClick('right', rightText)}
+                    disabled={isSubmitted || (!matchGameState.selectedLeft && !pairNum)}
+                    className={`w-full p-4 rounded-xl text-left font-semibold transition border-2 flex items-center gap-3 ${btnClass}`}
                   >
-                    {rightText}
+                    {pairNum && (
+                      <span className={`w-6 h-6 shrink-0 rounded-full text-xs flex items-center justify-center font-black ${isSubmitted ? (isCorrect ? 'bg-emerald-500 text-slate-950' : 'bg-rose-500 text-slate-950') : 'bg-indigo-500 text-slate-950'}`}>
+                        {pairNum}
+                      </span>
+                    )}
+                    <span>{rightText}</span>
                   </button>
                 )
               })}
             </div>
           </div>
 
-          {isFullyMatched && (
-            <div className="mt-8 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 font-bold flex items-center justify-center gap-3 animate-in fade-in zoom-in duration-300">
-              <CheckCircle2 size={24} /> Perfect Match! You can proceed to the next slide.
+          {/* Submit Button (Only shows when fully grouped!) */}
+          {!isSubmitted && isFullyMatched && (
+            <button 
+              onClick={handleSubmit} 
+              className="w-full mt-8 py-4 bg-brand-500 text-slate-950 font-black text-lg rounded-xl hover:bg-brand-400 transition shadow-[0_0_20px_rgba(245,158,11,0.3)] animate-in slide-in-from-bottom-2"
+            >
+              Submit Matches
+            </button>
+          )}
+
+          {/* Result Block */}
+          {isSubmitted && (
+            <div className={`mt-8 p-6 border rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 animate-in fade-in zoom-in duration-300 ${allCorrect ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
+              <div className="flex items-center gap-3 font-bold text-lg">
+                {allCorrect ? <CheckCircle2 size={28} /> : <AlertOctagon size={28} />}
+                {allCorrect ? "Perfect Match! You can proceed to the next slide." : `You got ${matchGameState.correctCount} out of ${data.pairs.length} correct.`}
+              </div>
+              {!allCorrect && (
+                <button onClick={handleTryAgain} className="px-6 py-3 bg-slate-800 text-white rounded-xl hover:bg-slate-700 font-bold flex items-center gap-2 transition w-full md:w-auto justify-center shadow-lg">
+                  <RotateCcw size={18} /> Try Again
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -376,7 +450,6 @@ const SlideRenderer = ({
 
 
 // --- COMPONENT 2: THE MAIN PARENT CONTAINER ---
-// This handles State, Menus, Modals, Pagination, and passes data down to the SlideRenderer.
 
 export default function LearningEngine({ mission, onComplete, onMemorize, onHighlight }) {
   const stepKey = `psc_mission_${mission?.dayNumber}_step`;
@@ -391,7 +464,9 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
   const [aiModal, setAiModal] = useState({ isOpen: false, query: '', response: '', loading: false });
 
   const [quizSelections, setQuizSelections] = useState({});
-  const [matchGameState, setMatchGameState] = useState({ selectedLeft: null, matched: [] });
+  
+  // 🚀 UPDATED: Match game state structure 
+  const [matchGameState, setMatchGameState] = useState({ selectedLeft: null, userPairs: {}, isSubmitted: false, allCorrect: false });
 
   const chapters = mission?.curriculumData?.study_material || [];
   const quickRevision = mission?.curriculumData?.quick_revision || [];
@@ -457,17 +532,14 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
     window.getSelection().removeAllRanges();
     setSelectionMenu(null);
 
-    // 1. Set loading to true, but keep isOpen FALSE so it runs in the background
     setAiModal({ isOpen: false, query: queryText, response: '', loading: true });
 
     try {
       const context = `Module: ${mission.title}. Explain this specific point clearly for a PSC exam student in simple terms.`;
       const aiResponse = await askAITutor(queryText, context);
 
-      // 2. Once the AI answers, pop open the modal
       setAiModal({ isOpen: true, query: queryText, response: aiResponse, loading: false });
     } catch (error) {
-      // 3. If it fails, pop open the modal to show the error
       setAiModal({ isOpen: true, query: queryText, response: `⚠️ ${error.message}`, loading: false });
     }
   };
@@ -477,6 +549,7 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
       const prevStep = activeStep - 1;
       setActiveStep(prevStep);
       localStorage.setItem(stepKey, prevStep.toString());
+      setMatchGameState({ selectedLeft: null, userPairs: {}, isSubmitted: false, allCorrect: false }); // Reset Match Game
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -485,6 +558,7 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
     const nextStep = activeStep + 1;
     setActiveStep(nextStep);
     localStorage.setItem(stepKey, nextStep.toString());
+    setMatchGameState({ selectedLeft: null, userPairs: {}, isSubmitted: false, allCorrect: false }); // Reset Match Game
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (nextStep >= chapters.length) onComplete();
   };
@@ -514,7 +588,6 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
         </div>
       )}
       
-      {/* 🚀 NEW: Background Loading Indicator Toast */}
       {aiModal.loading && !aiModal.isOpen && (
         <div className="fixed bottom-8 right-8 z-50 bg-slate-900 border border-brand-500/40 p-4 rounded-2xl shadow-[0_10px_40px_rgba(245,158,11,0.2)] flex items-center gap-4 animate-in slide-in-from-bottom-8">
           <div className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin shrink-0"></div>
@@ -565,7 +638,6 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
 
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 border-b border-slate-800 pb-6 select-none">
             <div>
-              {/* 🚀 NEW: CONTEXT BREADCRUMB UI */}
               {currentChapter.context_breadcrumb && (
                 <div className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
                   <Layers size={14} className="text-slate-600" />
@@ -586,7 +658,6 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
           </div>
 
           <div className="flex-1" onMouseUp={handleMouseUp}>
-            {/* 🚀 NEW CLEAN DELEGATION TO THE SLIDE RENDERER COMPONENT */}
             <SlideRenderer
               chapter={currentChapter}
               activeStep={activeStep}
@@ -598,7 +669,6 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
               setMatchGameState={setMatchGameState}
             />
 
-            {/* Standard Key Data / Specs Footer (Applies universally if data exists) */}
             {currentChapter.key_data?.length > 0 && (
               <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner mt-8">
                 <h4 className="text-sm font-bold text-sky-400 uppercase tracking-widest flex items-center gap-2 mb-4 select-none">
@@ -615,7 +685,6 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
               </div>
             )}
 
-            {/* Standard Trap Footer */}
             {currentChapter.psc_trap && (
               <div className="bg-rose-950/20 border border-rose-500/30 p-6 rounded-2xl flex gap-4 shadow-sm mt-6">
                 <AlertOctagon size={28} className="text-rose-500 shrink-0 select-none mt-1" />
@@ -633,7 +702,6 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
           <div className="mt-12 flex flex-col-reverse sm:flex-row items-center justify-between gap-4 pt-6 border-t border-slate-800 select-none">
             
             <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-start">
-              {/* Previous Button (Turns invisible on slide 1) */}
               <button 
                 onClick={handlePrevPage}
                 disabled={activeStep === 0}
@@ -647,12 +715,12 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
               </span>
             </div>
 
-            {/* Next Button */}
+            {/* 🚀 Next Button (Blocked if interactive match is wrong) */}
             <button 
               onClick={handleNextPage} 
               disabled={
                 (currentChapter.type === 'quick_quiz' && !quizSelections[activeStep]) ||
-                (currentChapter.type === 'interactive_match' && matchGameState.matched.length !== (currentChapter.content_data?.pairs?.length || 0) * 2)
+                (currentChapter.type === 'interactive_match' && !matchGameState.allCorrect)
               }
               className="w-full sm:w-auto px-8 py-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-base md:text-lg rounded-xl shadow-xl flex justify-center items-center gap-2 transition active:scale-95"
             >
@@ -716,6 +784,7 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
               onClick={() => {
                 setActiveStep(0);
                 localStorage.setItem(stepKey, '0');
+                setMatchGameState({ selectedLeft: null, userPairs: {}, isSubmitted: false, allCorrect: false });
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl flex items-center gap-2 transition shadow-lg border border-slate-700"

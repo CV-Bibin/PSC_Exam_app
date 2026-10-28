@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { db } from '../../services/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 import { 
   Compass, Flame, Award, Moon, Sun, LayoutDashboard, Activity, Target, 
-  Bot,MessageSquare, Bookmark, BrainCircuit, LogOut, ShieldAlert, FastForward, Swords
+  Bot, MessageSquare, Bookmark, BrainCircuit, LogOut, ShieldAlert, FastForward, Swords
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -13,19 +13,19 @@ export default function Layout() {
   const navigate = useNavigate();
   const [isDark, setIsDark] = useState(true);
   
-  // State for unattempted exam notifications
+  // 🚀 NOTIFICATION STATES
   const [unattemptedExams, setUnattemptedExams] = useState(0);
+  const [unreadChats, setUnreadChats] = useState(0);
+  const [pendingMistakes, setPendingMistakes] = useState(0);
 
   const userState = { xp: 1450, level: 3, streak: 5, rankTitle: "Overseer Gr-I" };
 
-  // Check for new exams to show on the notification badge
+  // 1. EXAM NOTIFICATIONS (Checks for unattempted published mocks)
   useEffect(() => {
     const checkForNewExams = async () => {
       try {
         const snap = await getDocs(collection(db, 'weekly_mocks'));
         const completedExams = JSON.parse(localStorage.getItem('psc_completed_exams') || '[]');
-        
-        // Count how many published exams are NOT in the user's completed list
         const pendingCount = snap.docs.filter(doc => !completedExams.includes(doc.id)).length;
         setUnattemptedExams(pendingCount);
       } catch (error) {
@@ -34,6 +34,45 @@ export default function Layout() {
     };
     checkForNewExams();
   }, []);
+
+  // 2. REAL-TIME CHAT NOTIFICATIONS
+  useEffect(() => {
+    const lastReadTimestamp = parseInt(localStorage.getItem('psc_last_chat_read') || '0');
+    const chatRef = collection(db, 'global_discussions');
+    const q = query(chatRef, orderBy('createdAt', 'desc'), limit(50));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      let unreadCount = 0;
+      snapshot.forEach((doc) => {
+        const msgData = doc.data();
+        const msgTime = msgData.createdAt?.toMillis() || 0;
+        if (msgTime > lastReadTimestamp) unreadCount++;
+      });
+      setUnreadChats(unreadCount);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // 3. MISTAKE LOG NOTIFICATIONS
+  useEffect(() => {
+    const checkMistakes = () => {
+      const mistakes = JSON.parse(localStorage.getItem('psc_mistakes') || '[]');
+      setPendingMistakes(mistakes.length);
+    };
+    
+    checkMistakes(); // Initial check
+    
+    // Listen for changes if a mistake is made in the Exam Arena
+    window.addEventListener('storage', checkMistakes);
+    return () => window.removeEventListener('storage', checkMistakes);
+  }, []);
+
+  // CLEAR CHAT NOTIFICATION
+  const handleChatTabClick = () => {
+    localStorage.setItem('psc_last_chat_read', Date.now().toString());
+    setUnreadChats(0);
+  };
 
   const handleLogout = async () => {
     try {
@@ -113,28 +152,27 @@ export default function Layout() {
           <NavItem to="/daily" icon={<Target size={16} />} label="Daily Sequence" />
           <NavItem to="/revision" icon={<FastForward size={16} />} label="Daily Revision" />
           
-          {/* EXAM ARENA TAB */}
+          {/* EXAM ARENA TAB with notification */}
           <NavItem to="/arena" icon={<Swords size={16} />} label="Exam Arena" badge={unattemptedExams} />
           
-          {/* <NavItem to="/tutor" icon={<Bot size={16} />} label="AI Tutor" /> */}
+          {/* LIVE DISCUSSION TAB with onClick clearance and notification */}
           <NavLink 
-  to="/discuss" 
-  className={({ isActive }) => 
-    `flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition ${
-      isActive 
-        ? 'bg-brand-500 text-slate-950 shadow-[0_0_15px_rgba(245,158,11,0.3)]' 
-        : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-    }`
-  }
->
-  <MessageSquare size={20} />
-  <span>Live Discussion</span>
-</NavLink>
+            to="/discuss" 
+            onClick={handleChatTabClick}
+            className={({ isActive }) => 
+              `flex items-center px-4 py-2 rounded-lg font-semibold whitespace-nowrap text-sm transition relative
+              ${isActive ? 'text-slate-950 bg-brand-500 shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`
+            }
+          >
+            <MessageSquare size={16} className="mr-2" />
+            <span>Live Discussion</span>
+            <NotificationBubble count={unreadChats} />
+          </NavLink>
           
-          {/* FAVORITES/VAULT TAB */}
           <NavItem to="/vault" icon={<Bookmark size={16} />} label="My Favorites" />
           
-          <NavItem to="/mistakes" icon={<BrainCircuit size={16} />} label="Mistake Log" />
+          {/* MISTAKE LOG TAB with notification */}
+          <NavItem to="/mistakes" icon={<BrainCircuit size={16} />} label="Mistake Log" badge={pendingMistakes} />
           
           {(isAdmin || (user && user.email === 'admin@psccivil.com')) && (
             <NavItem to="/admin" icon={<ShieldAlert size={16} className="text-rose-400" />} label="Admin Controls" />
@@ -149,23 +187,33 @@ export default function Layout() {
   );
 }
 
-// NavItem component with Notification Badge support
-function NavItem({ to, icon, label, badge }) {
+// 🚀 REUSABLE NOTIFICATION BUBBLE COMPONENT
+function NotificationBubble({ count }) {
+  if (!count || count <= 0) return null;
+  const displayCount = count > 99 ? '99+' : count;
+  
+  return (
+    <span className="ml-2 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 bg-rose-500 text-white text-[11px] font-black rounded-full shadow-md animate-in zoom-in-95 duration-300">
+      {displayCount}
+    </span>
+  );
+}
+
+// 🚀 UPGRADED NAV ITEM WITH BUBBLE INTEGRATION
+function NavItem({ to, icon, label, badge, onClick }) {
   return (
     <NavLink 
       to={to}
+      onClick={onClick}
       className={({ isActive }) => `
-        px-4 py-2 rounded-lg font-semibold flex items-center gap-2 whitespace-nowrap text-sm transition relative
+        px-4 py-2 rounded-lg font-semibold flex items-center whitespace-nowrap text-sm transition relative
         ${isActive ? 'text-brand-400 bg-brand-500/10 border border-brand-500/30 shadow-[0_0_15px_rgba(245,158,11,0.2)]' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-transparent'}
       `}
     >
-      {icon} <span>{label}</span>
-      
-      {badge > 0 && (
-        <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full min-w-[18px] text-center shadow-[0_0_10px_rgba(225,29,72,0.5)]">
-          {badge}
-        </span>
-      )}
+      <div className="flex items-center gap-2">
+        {icon} <span>{label}</span>
+      </div>
+      <NotificationBubble count={badge} />
     </NavLink>
   );
 }

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../services/firebase';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../services/firebase';
 import { Compass, Lock, Mail } from 'lucide-react';
 
 export default function Login() {
@@ -18,14 +19,34 @@ export default function Login() {
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      // Simple Admin Routing check based on email (you can upgrade to Custom Claims later)
-      if (userCredential.user.email === 'admin@psccivil.com') {
+      const user = userCredential.user;
+
+      // 🚀 Check and create Firestore profile if missing
+      const userRef = doc(db, 'users', user.uid);
+      const docSnap = await getDoc(userRef);
+
+      if (!docSnap.exists()) {
+        await setDoc(userRef, {
+          email: user.email,
+          role: 'student', // Default role
+          xp: 0,
+          isAdmin: false,
+          rankTitle: 'Novice',
+          createdAt: new Date().toISOString()
+        });
+        console.log("New user profile created in Firestore!");
+      }
+
+      // Admin Routing check
+      if (user.email === 'admin@psccivil.com') {
         navigate('/admin/dashboard');
       } else {
         navigate('/dashboard');
       }
     } catch (err) {
-      setError('Invalid credentials. Please try again.');
+      console.error("FULL FIREBASE ERROR:", err);
+      // 🚀 THE FIX: Expose the actual Firebase error message to the screen
+      setError(`Error: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -42,7 +63,7 @@ export default function Login() {
           <p className="text-sm text-slate-400">Sign in to your learning portal</p>
         </div>
 
-        {error && <div className="bg-rose-500/10 border border-rose-500/30 text-rose-400 p-3 rounded-lg text-sm mb-4">{error}</div>}
+        {error && <div className="bg-rose-500/10 border border-rose-500/30 text-rose-400 p-3 rounded-lg text-sm mb-4 font-bold">{error}</div>}
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>

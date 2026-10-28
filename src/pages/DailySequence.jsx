@@ -65,12 +65,15 @@ export default function DailySequence() {
     });
   };
 
-  const handleUnlockNextDay = () => {
+ const handleUnlockNextDay = () => {
     let updatedDays = [...completedDays];
     if (!completedDays.includes(mission.dayNumber)) {
       updatedDays = [...completedDays, mission.dayNumber];
       setCompletedDays(updatedDays);
       localStorage.setItem('psc_completed_days', JSON.stringify(updatedDays));
+      
+      // 🚀 NEW: This single line tells the Exam Arena to unlock the quizzes!
+      localStorage.setItem('psc_completed_slides', JSON.stringify(updatedDays));
     }
     
     const nextMission = allMissions.find(m => m.dayNumber === mission.dayNumber + 1);

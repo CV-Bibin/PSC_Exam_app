@@ -5,7 +5,7 @@ import { extractSyllabusData, extractTextFromPPTX } from '../../services/gemini'
 import { 
   Plus, Upload, Calendar, Sparkles, FileText, UploadCloud, 
   ClipboardPaste, FileUp, BookOpen, Target, Gamepad2, Eye, X, AlertTriangle, CheckCircle2,
-  Image as ImageIcon // Added ImageIcon for the Art Studio UI
+  Image as ImageIcon, Code // Added Code icon for JSON field
 } from 'lucide-react';
 
 export default function DailyTaskManager({ selectedCourse, selectedModule, setStatusMessage, globalNextDay }) {
@@ -28,10 +28,13 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
   // State for the Preview Modal
   const [previewTask, setPreviewTask] = useState(null);
 
-  // --- NEW: ART STUDIO STATE ---
-  const [slideImages, setSlideImages] = useState({}); // Stores { slideIndex: 'url_or_base64' }
+  // --- NEW: SPECIAL QUIZ JSON STATE ---
+  const [manualQuizJson, setManualQuizJson] = useState('');
+  const [jsonStatus, setJsonStatus] = useState(null);
 
-  // Resizes and compresses image to ensure it fits in Firestore's 1MB limit
+  // --- ART STUDIO STATE ---
+  const [slideImages, setSlideImages] = useState({});
+
   const handleImageUpload = (index, file) => {
     if (!file) return;
     const reader = new FileReader();
@@ -39,7 +42,7 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 800; // Cap width to keep Base64 string small
+        const MAX_WIDTH = 800; 
         const scaleSize = MAX_WIDTH / img.width;
         canvas.width = MAX_WIDTH;
         canvas.height = img.height * scaleSize;
@@ -47,7 +50,6 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         
-        // Compress to 60% quality JPEG
         const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
         setSlideImages(prev => ({ ...prev, [index]: compressedBase64 }));
       };
@@ -56,14 +58,12 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
     reader.readAsDataURL(file);
   };
 
-  // 1. Sync the Day Number automatically when the global tracker changes
   useEffect(() => {
     if (globalNextDay) {
       setDayNumber(globalNextDay);
     }
   }, [globalNextDay]);
 
-  // 2. Only trigger resetForm if the actual IDs change, not on parent re-renders!
   useEffect(() => {
     if (selectedCourse?.courseId && selectedModule?.moduleNumber) {
       fetchDayTasks(selectedCourse.courseId, selectedModule.moduleNumber);
@@ -76,7 +76,9 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
     setPdfUrl('');
     setAiPayload(null);
     setPastedTextContent('');
-    setSlideImages({}); // Clear staged images
+    setSlideImages({});
+    setManualQuizJson('');
+    setJsonStatus(null);
   };
 
   const fetchDayTasks = async (courseId, moduleNum) => {
@@ -147,6 +149,21 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
     await handleAIProcessing(pastedTextContent, true);
   };
 
+  // 🚀 NEW: Validate JSON Function
+  const handleValidateJson = () => {
+    if (!manualQuizJson.trim()) {
+      setJsonStatus({ error: true, msg: 'JSON field is empty.' });
+      return;
+    }
+    try {
+      const parsed = JSON.parse(manualQuizJson);
+      if (!Array.isArray(parsed)) throw new Error("JSON must be an array.");
+      setJsonStatus({ error: false, msg: `Valid Format! ${parsed.length} questions detected.` });
+    } catch (err) {
+      setJsonStatus({ error: true, msg: `Invalid JSON: ${err.message}` });
+    }
+  };
+
   const handleAddDayTask = async (e) => {
     e.preventDefault();
     if (!taskTitle.trim() || !aiPayload) {
@@ -157,8 +174,8 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
     setLoading(true);
     setStatusMessage('Saving curriculum to database...');
     try {
-      // --- NEW: INJECT STAGED IMAGES INTO THE PAYLOAD ---
       const finalPayload = { ...aiPayload };
+      
       if (finalPayload.study_material) {
         finalPayload.study_material = finalPayload.study_material.map((slide, idx) => {
           if (slideImages[idx]) {
@@ -168,6 +185,19 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
         });
       }
 
+      // 🚀 INJECT SEPARATE SPECIAL QUIZZES
+      if (manualQuizJson.trim()) {
+        try {
+          const parsedJson = JSON.parse(manualQuizJson);
+          if (!Array.isArray(parsedJson)) throw new Error("JSON must be an array.");
+          finalPayload.special_quizzes = parsedJson; // Saved separately so it doesn't overwrite standard quizzes
+        } catch (err) {
+          setStatusMessage(`❌ Special Quiz JSON Error: ${err.message}`);
+          setLoading(false);
+          return;
+        }
+      }
+
       const taskData = {
         courseId: selectedCourse.courseId,
         moduleNumber: selectedModule.moduleNumber,
@@ -175,7 +205,7 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
         dayNumber: Number(dayNumber),
         title: taskTitle.trim(),
         pdfUrl: pdfUrl.trim() || null,
-        curriculumData: finalPayload, // Use the updated payload with images
+        curriculumData: finalPayload, 
         createdAt: new Date().toISOString(),
         aiQuestionsStatus: 'generated'
       };
@@ -194,7 +224,6 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
 
   return (
     <div className="space-y-6 relative">
-      {/* Module Header */}
       <div className="bg-civil-card border border-civil-border p-5 rounded-2xl space-y-2">
         <div className="flex justify-between items-start">
           <div>
@@ -214,7 +243,6 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
         </div>
       </div>
 
-      {/* Form to Add Next Day Task */}
       <form onSubmit={handleAddDayTask} className="bg-civil-card border border-civil-border p-5 rounded-2xl space-y-5">
         <div className="flex items-center justify-between pb-2 border-b border-civil-border">
           <h4 className="text-sm font-bold text-white flex items-center gap-2">
@@ -223,7 +251,6 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
           <span className="text-[11px] text-slate-400">Step in the Daily Loop</span>
         </div>
 
-        {/* AI Input Method Selector (File vs Paste) */}
         <div className="bg-slate-900/50 border border-brand-500/30 p-4 rounded-xl space-y-4 shadow-inner">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
             <label className="text-xs font-semibold text-brand-400 flex items-center gap-1.5">
@@ -277,7 +304,6 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
                )}
              </div>
              
-             {/* UPDATED MIDDLE CARD: Daily vs Grand Exam Reserve */}
              <div className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 flex flex-col justify-between">
                <div className="flex items-center gap-1.5 mb-2">
                  <Target size={14} className="text-rose-400" />
@@ -349,7 +375,6 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
                       </label>
                     </div>
 
-                    {/* 🚀 NEW: VISUAL THUMBNAIL PREVIEW */}
                     {slideImages[index] && (
                       <div className="mt-4 p-2 bg-slate-950/80 border border-emerald-500/30 rounded-lg flex items-center justify-between animate-in fade-in duration-300">
                         <div className="flex items-center gap-3">
@@ -374,6 +399,35 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
           </div>
         )}
 
+        {/* 🚀 NEW: SPECIAL QUIZ JSON INJECTION */}
+        <div className="bg-slate-900/50 border border-slate-700 p-4 rounded-xl space-y-3">
+          <h4 className="text-sm font-bold text-sky-400 flex items-center gap-2">
+            <Code size={16} /> Optional: Special Detailed Quizzes (JSON)
+          </h4>
+          <textarea
+            rows={3}
+            placeholder='[{"question": "...", "options": ["A","B","C","D"], "correct_answer": "A"}]'
+            value={manualQuizJson}
+            onChange={(e) => { setManualQuizJson(e.target.value); setJsonStatus(null); }}
+            className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs font-mono text-slate-300 focus:outline-none focus:border-brand-500 transition custom-scrollbar"
+          />
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] text-slate-500">This JSON is saved separately as 'special_quizzes' alongside AI data.</p>
+            <button 
+              type="button" 
+              onClick={handleValidateJson}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 rounded-lg transition"
+            >
+              Validate JSON
+            </button>
+          </div>
+          {jsonStatus && (
+            <div className={`text-xs font-bold p-2.5 rounded-lg border ${jsonStatus.error ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}`}>
+              {jsonStatus.error ? `❌ ${jsonStatus.msg}` : `✅ ${jsonStatus.msg}`}
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className="text-xs font-semibold text-slate-400 block mb-1">Day #</label>
@@ -390,7 +444,6 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
         </button>
       </form>
 
-      {/* Scheduled List with Preview Button */}
       <div className="bg-civil-card border border-civil-border p-5 rounded-2xl space-y-3">
         <h4 className="text-sm font-bold text-white flex items-center gap-2">
           <Calendar size={16} className="text-brand-400" /> Scheduled Daily Flow ({dayTasks.length} Days)
@@ -410,7 +463,8 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
                   {t.curriculumData && (
                     <span className="text-[10px] text-slate-400 flex items-center gap-1.5">
                       <Gamepad2 size={10} className="text-sky-400" /> 
-                      {t.curriculumData.quizzes?.length} MCQs | {t.curriculumData.games?.flashcards?.length} Flashcards
+                      {t.curriculumData.quizzes?.length || 0} MCQs | {t.curriculumData.games?.flashcards?.length || 0} Flashcards
+                      {t.curriculumData.special_quizzes && <span className="ml-2 text-amber-400">(+{t.curriculumData.special_quizzes.length} Special Qs)</span>}
                     </span>
                   )}
                 </div>
@@ -429,12 +483,10 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
         )}
       </div>
 
-      {/* --- PREVIEW MODAL OVERLAY --- */}
       {previewTask && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="bg-civil-card border border-civil-border rounded-2xl w-full max-w-4xl h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             
-            {/* Modal Header */}
             <div className="flex items-center justify-between p-4 bg-slate-900/80 border-b border-slate-800">
               <div>
                 <span className="px-2 py-0.5 rounded bg-brand-500/20 text-brand-400 font-bold text-[10px] uppercase tracking-wider mb-1 inline-block">
@@ -447,23 +499,44 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
               </button>
             </div>
 
-            {/* Modal Scrollable Body */}
             <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar bg-civil-dark/50">
               
-              {/* 1. Study Material Notes */}
-              <section className="space-y-3">
+             {/* 1. Slide Deck Preview (Mini Slides) */}
+              <section className="space-y-4">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-2">
-                  <BookOpen size={16} className="text-brand-400" /> Deep-Dive Notes
+                  <BookOpen size={16} className="text-brand-400" /> Slide Deck Preview ({previewTask.curriculumData?.study_material?.length || 0} Slides)
                 </h4>
-                {previewTask.curriculumData?.study_material?.map((mat, i) => (
-                  <div key={i} className="bg-slate-900 p-4 rounded-xl border border-slate-800">
-                    <h5 className="font-bold text-amber-400 mb-2">{mat.heading}</h5>
-                    <div className="text-sm text-slate-300 whitespace-pre-wrap">{mat.content}</div>
-                  </div>
-                ))}
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {previewTask.curriculumData?.study_material?.map((mat, i) => (
+                    <div key={i} className="bg-slate-900 flex flex-col rounded-xl border border-slate-700 overflow-hidden shadow-lg hover:border-brand-500 transition-colors group">
+                      
+                      {/* Slide Header */}
+                      <div className="bg-slate-950 px-3 py-2 border-b border-slate-800 flex justify-between items-center">
+                        <span className="text-[10px] font-black text-brand-400 uppercase tracking-widest">Slide {i + 1}</span>
+                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">{mat.type || 'Content'}</span>
+                      </div>
+                      
+                      {/* Slide Image (If attached) */}
+                      {mat.image_url && (
+                        <div className="w-full h-24 bg-slate-800 border-b border-slate-700 relative overflow-hidden">
+                          <img src={mat.image_url} alt="Slide visual" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                        </div>
+                      )}
+                      
+                      {/* Slide Body */}
+                      <div className="p-4 flex-1 flex flex-col bg-slate-900/50">
+                        <h5 className="font-bold text-white text-sm mb-2 line-clamp-2 leading-tight">{mat.heading}</h5>
+                        <div className="text-[10px] text-slate-400 whitespace-pre-wrap line-clamp-6 flex-1 leading-relaxed">
+                          {mat.content}
+                        </div>
+                      </div>
+                      
+                    </div>
+                  ))}
+                </div>
               </section>
 
-              {/* 2. Quizzes / MCQs */}
               <section className="space-y-3">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-2">
                   <Target size={16} className="text-rose-400" /> Generated MCQs
@@ -485,16 +558,38 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
                 </div>
               </section>
 
-              {/* 3. Game Data - Flashcards & Traps */}
+              {/* 🚀 NEW: SPECIAL QUIZ PREVIEW SECTION */}
+              {previewTask.curriculumData?.special_quizzes && previewTask.curriculumData.special_quizzes.length > 0 && (
+                <section className="space-y-3">
+                  <h4 className="text-sm font-bold text-amber-400 flex items-center gap-2 border-b border-slate-800 pb-2">
+                    <Code size={16} /> Special Detailed Quizzes ({previewTask.curriculumData.special_quizzes.length})
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {previewTask.curriculumData.special_quizzes.map((quiz, i) => (
+                      <div key={i} className="bg-slate-950 p-4 rounded-xl border border-amber-500/30 text-sm shadow-inner">
+                        <p className="font-semibold text-amber-100 mb-2">Q{i+1}: {quiz.question}</p>
+                        <ul className="space-y-1 mb-3">
+                          {quiz.options?.map((opt, j) => (
+                            <li key={j} className={`p-1.5 rounded text-xs ${opt === quiz.correct_answer ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold' : 'bg-slate-900 text-slate-500 border border-slate-800'}`}>
+                              {opt}
+                            </li>
+                          ))}
+                        </ul>
+                        {quiz.explanation && <p className="text-[11px] text-slate-500"><span className="text-amber-500 font-bold">Explanation:</span> {quiz.explanation}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               <section className="space-y-3">
                 <h4 className="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-2">
                   <Gamepad2 size={16} className="text-sky-400" /> Game Engine Data
                 </h4>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Flashcards */}
                   <div className="space-y-2">
-                    <h5 className="text-xs font-bold text-slate-400 uppercase">Flashcards ({previewTask.curriculumData?.games?.flashcards?.length})</h5>
+                    <h5 className="text-xs font-bold text-slate-400 uppercase">Flashcards ({previewTask.curriculumData?.games?.flashcards?.length || 0})</h5>
                     {previewTask.curriculumData?.games?.flashcards?.slice(0,3).map((card, i) => (
                       <div key={i} className="bg-slate-900 p-2.5 rounded-lg border border-slate-800 text-xs flex flex-col gap-1">
                         <span className="text-brand-300 font-bold">{card.front}</span>
@@ -504,9 +599,8 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
                     <p className="text-[10px] text-slate-500 italic">+ {Math.max(0, (previewTask.curriculumData?.games?.flashcards?.length || 0) - 3)} more cards hidden</p>
                   </div>
 
-                  {/* Spot the Trap */}
                   <div className="space-y-2">
-                    <h5 className="text-xs font-bold text-slate-400 uppercase">Spot the Trap Statements ({previewTask.curriculumData?.games?.spot_the_trap?.length})</h5>
+                    <h5 className="text-xs font-bold text-slate-400 uppercase">Spot the Trap Statements ({previewTask.curriculumData?.games?.spot_the_trap?.length || 0})</h5>
                     {previewTask.curriculumData?.games?.spot_the_trap?.slice(0,3).map((trap, i) => (
                       <div key={i} className={`p-2.5 rounded-lg border text-xs flex gap-2 ${trap.is_true ? 'bg-emerald-900/20 border-emerald-900/50' : 'bg-rose-900/20 border-rose-900/50'}`}>
                         <div className="mt-0.5">{trap.is_true ? <CheckCircle2 size={14} className="text-emerald-500" /> : <AlertTriangle size={14} className="text-rose-500" />}</div>

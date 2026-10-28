@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../services/firebase';
 import { collection, addDoc, serverTimestamp, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore';
-import { Target, Clock, Loader2, Plus, Trash2, Code, Edit3, ListChecks, Database, Timer, Repeat, Edit, RotateCw, History } from 'lucide-react';
+import { Target, Clock, Loader2, Plus, Trash2, Code, Edit3, ListChecks, Database, Timer, Repeat, Edit, RotateCw, History, Wand2, CheckSquare, Square } from 'lucide-react';
 
 export default function LiveQuizTab() {
   const [liveTitle, setLiveTitle] = useState('');
@@ -20,11 +20,18 @@ export default function LiveQuizTab() {
   const [currentQ, setCurrentQ] = useState({ question: '', options: ['', '', '', ''], correctIndex: 0, explanation: '' });
   const [deployedExams, setDeployedExams] = useState([]);
 
+  // 🚀 Magic Generator States
+  const [generatorCount, setGeneratorCount] = useState(20);
+  const [selectedPastExams, setSelectedPastExams] = useState([]);
+  const [weeklyMocks, setWeeklyMocks] = useState([]); 
+
   const fetchDeployedExams = async () => {
     try {
-      // 🚀 FIXED: Pointing back to your correct database folder: 'live_quizzes'
       const snap = await getDocs(collection(db, 'live_quizzes'));
       setDeployedExams(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => new Date(b.scheduledStartTime) - new Date(a.scheduledStartTime)));
+      
+      const mockSnap = await getDocs(collection(db, 'weekly_mocks'));
+      setWeeklyMocks(mockSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (error) { console.error("Error fetching deployed exams:", error); }
   };
 
@@ -41,7 +48,6 @@ export default function LiveQuizTab() {
     }
   };
 
-  // Extend Deadline (Keeps History)
   const handleExtendDeadline = async (examId) => {
     if (window.confirm("Extend the deadline? Students' past attempts and scores WILL be saved. They cannot retake it if they already submitted.")) {
       try {
@@ -57,7 +63,6 @@ export default function LiveQuizTab() {
     }
   };
 
-  // Hard Reset (Wipes History)
   const handleHardResetRedeploy = async (examId) => {
     if (window.confirm("HARD RESET? This wipes all student progress for this exam and gives everyone a fresh, new attempt. Proceed?")) {
       try {
@@ -66,7 +71,7 @@ export default function LiveQuizTab() {
         const newEnd = new Date(Date.now() + parseInt(newHrs) * 60 * 60 * 1000).toISOString();
         
         await updateDoc(doc(db, 'live_quizzes', examId), {
-          deployedAt: Date.now(), // 🚀 Changing this invalidates the old local storage save file for students
+          deployedAt: Date.now(), 
           scheduledStartTime: new Date().toISOString(),
           scheduledEndTime: newEnd
         });
@@ -90,7 +95,7 @@ export default function LiveQuizTab() {
     setEndTime(formatForInput(exam.scheduledEndTime));
     setTimeLimit(exam.timeLimitMinutes || 15);
     setMaxAttempts(exam.maxAttempts === 'unlimited' ? 'unlimited' : (exam.maxAttempts?.toString() || '1'));
-    setQuestions(exam.questions || exam.quizzes || []); // Handle both schemas
+    setQuestions(exam.questions || exam.quizzes || []); 
     
     setLiveStatus(`⚠️ Editing Mode Active: "${exam.title}"`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -163,6 +168,88 @@ export default function LiveQuizTab() {
   const nowIso = new Date().toISOString();
   const activeExams = deployedExams.filter(e => e.scheduledEndTime > nowIso);
   const pastExams = deployedExams.filter(e => e.scheduledEndTime <= nowIso);
+  const generatorSourceExams = [...pastExams, ...weeklyMocks];
+
+  // 🚀 Helper Function: Safely count questions regardless of schema
+  const getQuestionCount = (exam) => {
+    if (Array.isArray(exam.questions)) return exam.questions.length;
+    if (exam.questions && typeof exam.questions === 'object') {
+      return (exam.questions.mcq?.length || 0) + (exam.questions.trap?.length || 0);
+    }
+    if (exam.quizzes) return exam.quizzes.length;
+    return 0;
+  };
+
+  const handleAutoGenerate = () => {
+    if (selectedPastExams.length === 0) {
+      setLiveStatus('⚠️ Select at least one past exam to pull questions from.'); return;
+    }
+    
+    let combinedQuestions = [];
+    const examsToPullFrom = generatorSourceExams.filter(e => selectedPastExams.includes(e.id));
+    
+    const perExamCount = Math.floor(generatorCount / examsToPullFrom.length);
+    let remainder = generatorCount % examsToPullFrom.length;
+
+    examsToPullFrom.forEach(exam => {
+      // 🚀 UNIVERSAL NORMALIZER: Flattens Grand Mocks and Standard Mocks into one array
+      let pool = [];
+      if (Array.isArray(exam.questions)) {
+        pool = [...exam.questions];
+      } else if (exam.questions && typeof exam.questions === 'object') {
+        pool = [
+          ...(exam.questions.mcq || []).map(q => ({ ...q, gameType: 'mcq' })),
+          ...(exam.questions.trap || []).map(q => {
+            const isFact = q.is_true === true || String(q.correct_answer).toLowerCase().includes("fact") || String(q.correct_answer).toLowerCase().includes("true");
+            return {
+              ...q,
+              gameType: 'trap',
+              question: q.statement || q.question || "Identify if this statement is a Fact or a Trap:",
+              options: ['FACT (True)', 'TRAP (False)'],
+              correct_answer: isFact ? 'FACT (True)' : 'TRAP (False)',
+              explanation: q.explanation || "Review this concept carefully."
+            };
+          })
+        ];
+      } else if (exam.quizzes) {
+        pool = [...exam.quizzes];
+      }
+      
+      pool.sort(() => Math.random() - 0.5);
+      
+      let pullCount = Math.min(perExamCount + (remainder > 0 ? 1 : 0), pool.length);
+      if (remainder > 0) remainder--;
+
+      let pulled = pool.slice(0, pullCount);
+      
+      pulled = pulled.map(q => {
+        if (q.type === 'trap' || q.gameType === 'trap' || !q.options || q.options.length < 2) return q; 
+        let newOptions = [...q.options];
+        for (let i = newOptions.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [newOptions[i], newOptions[j]] = [newOptions[j], newOptions[i]];
+        }
+        return { ...q, options: newOptions };
+      });
+
+      combinedQuestions.push(...pulled);
+    });
+
+    combinedQuestions.sort(() => Math.random() - 0.5);
+
+    setQuestions([...questions, ...combinedQuestions]);
+    setLiveStatus(`✅ Magic Generator: Pulled and shuffled ${combinedQuestions.length} questions from ${examsToPullFrom.length} exams!`);
+    setSelectedPastExams([]);
+    setInputMode('manual'); 
+  };
+
+  const togglePastExamSelection = (examId) => {
+    if (selectedPastExams.includes(examId)) {
+      setSelectedPastExams(selectedPastExams.filter(id => id !== examId));
+    } else {
+      setSelectedPastExams([...selectedPastExams, examId]);
+    }
+  };
 
   const ExamAdminCard = ({ exam, isActive }) => (
     <div className={`p-5 rounded-2xl border flex flex-col justify-between group transition ${isActive ? 'bg-slate-900 border-brand-500/30 hover:border-brand-500/60 shadow-lg' : 'bg-slate-900/40 border-slate-800 hover:border-slate-600'}`}>
@@ -173,7 +260,7 @@ export default function LiveQuizTab() {
             {isActive ? 'Active' : 'Expired'}
           </span>
         </div>
-        <p className="text-xs text-slate-400 font-bold flex items-center gap-2 mb-1"><ListChecks size={14}/> {exam.questions?.length || exam.quizzes?.length || 0} Questions</p>
+        <p className="text-xs text-slate-400 font-bold flex items-center gap-2 mb-1"><ListChecks size={14}/> {getQuestionCount(exam)} Questions</p>
         <p className="text-xs text-slate-400 font-bold flex items-center gap-2 mb-4"><Clock size={14}/> {exam.timeLimitMinutes} Mins • {exam.maxAttempts === 'unlimited' ? '∞' : exam.maxAttempts} Attempts</p>
         <div className="text-[10px] text-slate-500 font-mono mb-4 pt-4 border-t border-slate-800/50">
           Ends: {new Date(exam.scheduledEndTime).toLocaleString()}
@@ -231,11 +318,68 @@ export default function LiveQuizTab() {
           <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
             <span className="w-6 h-6 rounded-full bg-brand-500 text-slate-950 flex items-center justify-center">2</span> Inject Questions
           </h3>
-          <div className="flex bg-slate-950 p-1.5 rounded-xl border border-slate-800 shadow-inner">
-            <button onClick={() => setInputMode('manual')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest flex items-center gap-2 transition ${inputMode === 'manual' ? 'bg-brand-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-white'}`}><Edit3 size={14}/> Manual</button>
-            <button onClick={() => setInputMode('bulk')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest flex items-center gap-2 transition ${inputMode === 'bulk' ? 'bg-brand-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-white'}`}><Code size={14}/> Bulk JSON</button>
+          <div className="flex bg-slate-950 p-1.5 rounded-xl border border-slate-800 shadow-inner overflow-x-auto">
+            <button onClick={() => setInputMode('manual')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest flex items-center gap-2 transition shrink-0 ${inputMode === 'manual' ? 'bg-brand-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-white'}`}><Edit3 size={14}/> Manual</button>
+            <button onClick={() => setInputMode('bulk')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest flex items-center gap-2 transition shrink-0 ${inputMode === 'bulk' ? 'bg-brand-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-white'}`}><Code size={14}/> Bulk JSON</button>
+            <button onClick={() => setInputMode('generate')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest flex items-center gap-2 transition shrink-0 ${inputMode === 'generate' ? 'bg-brand-500 text-slate-950 shadow-md' : 'text-slate-500 hover:text-white'}`}><Wand2 size={14}/> Generate</button>
           </div>
         </div>
+
+        {inputMode === 'generate' && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="bg-sky-950/20 border border-sky-900/50 p-5 rounded-xl">
+              <h4 className="text-sky-400 font-bold mb-2 flex items-center gap-2"><Wand2 size={18}/> Magic Exam Generator</h4>
+              <p className="text-sm text-slate-400 mb-6">Select past exams below. The system will pull an equal number of random questions from each, shuffle all the options, and combine them into a fresh exam.</p>
+              
+              <div className="flex items-center gap-4 mb-6">
+                <label className="text-sm font-bold text-white uppercase tracking-widest shrink-0">Total Questions to Extract:</label>
+                <input 
+                  type="number" min="1" 
+                  value={generatorCount} onChange={e => setGeneratorCount(parseInt(e.target.value))} 
+                  className="w-24 bg-slate-950 border border-slate-700 rounded-lg p-2 text-center font-black text-brand-400 focus:border-brand-500 outline-none"
+                />
+              </div>
+
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 max-h-60 overflow-y-auto custom-scrollbar">
+                <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3 border-b border-slate-800 pb-2">Select Expired Source Exams</p>
+                {generatorSourceExams.length === 0 ? (
+                  <p className="text-sm text-slate-500">No past exams available to pull from.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {generatorSourceExams.map(exam => {
+                      const isSelected = selectedPastExams.includes(exam.id);
+                      
+                      let examTypeLabel = "Weekly Mock";
+                      if (exam.isGrandMock) examTypeLabel = "Module Mastery";
+                      else if (exam.scheduledEndTime) examTypeLabel = "Live Exam";
+
+                      return (
+                        <div key={exam.id} onClick={() => togglePastExamSelection(exam.id)} className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition border ${isSelected ? 'bg-sky-900/40 border-sky-500/50' : 'bg-slate-900 border-slate-800 hover:border-slate-600'}`}>
+                          {isSelected ? <CheckSquare size={18} className="text-sky-400" /> : <Square size={18} className="text-slate-500" />}
+                          <div className="flex-1">
+                            <p className={`text-sm font-bold ${isSelected ? 'text-sky-100' : 'text-slate-300'}`}>{exam.title}</p>
+                            <p className="text-xs text-slate-500">{getQuestionCount(exam)} Questions Available</p>
+                          </div>
+                          <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 bg-slate-950 px-2 py-1 rounded">
+                            {examTypeLabel}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <button 
+                onClick={handleAutoGenerate}
+                disabled={selectedPastExams.length === 0}
+                className="w-full mt-6 py-4 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 disabled:hover:bg-sky-600 text-white font-black rounded-xl transition flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(14,165,233,0.3)]"
+              >
+                <Wand2 size={18} /> Generate Mixed Exam
+              </button>
+            </div>
+          </div>
+        )}
 
         {inputMode === 'manual' && (
           <div className="space-y-4 animate-in fade-in duration-300">

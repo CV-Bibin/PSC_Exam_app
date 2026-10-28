@@ -112,23 +112,25 @@ export default function CurriculumManagerTab() {
         let grandMCQs = [];
         let grandTraps = [];
 
-        snap.docs.forEach(doc => {
+       snap.docs.forEach(doc => {
           const data = doc.data();
           if (data.moduleNumber === selectedModule.moduleNumber) {
-            if (data.curriculumData?.grand_exam_quizzes) grandMCQs.push(...data.curriculumData.grand_exam_quizzes);
-            if (data.curriculumData?.grand_exam_traps) grandTraps.push(...data.curriculumData.grand_exam_traps);
+            
+            // 🚀 1. Prioritize your Manual Special Quizzes (JSON)
+            if (data.curriculumData?.special_quizzes && data.curriculumData.special_quizzes.length > 0) {
+              grandMCQs.push(...data.curriculumData.special_quizzes);
+            } 
+            // 2. Fallback to AI Quizzes only if you didn't paste a JSON for that day
+            else if (data.curriculumData?.quizzes) {
+              grandMCQs.push(...data.curriculumData.quizzes);
+            }
+            
+            // 3. Always grab the Trap games
+            if (data.curriculumData?.games?.spot_the_trap) {
+              grandTraps.push(...data.curriculumData.games.spot_the_trap);
+            }
           }
         });
-
-        if (grandMCQs.length === 0 && grandTraps.length === 0) {
-          snap.docs.forEach(doc => {
-            const data = doc.data();
-            if (data.moduleNumber === selectedModule.moduleNumber) {
-              if (data.curriculumData?.quizzes) grandMCQs.push(...data.curriculumData.quizzes);
-              if (data.curriculumData?.games?.spot_the_trap) grandTraps.push(...data.curriculumData.games.spot_the_trap);
-            }
-          });
-        }
 
         const shuffleArray = (array) => [...array].sort(() => Math.random() - 0.5);
 
