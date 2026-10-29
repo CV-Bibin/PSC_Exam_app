@@ -2,12 +2,14 @@ import { useState, useEffect, useMemo } from 'react';
 import { db } from '../services/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { FastForward, CheckCircle2, ChevronDown, ChevronUp, Search } from 'lucide-react';
+import { useAuth } from '../context/AuthContext'; // 🚀 1. Import AuthContext
 
 export default function DailyRevision() {
+  const { completedDays } = useAuth(); // 🚀 2. Extract Cloud Data
+
   const [completedMissions, setCompletedMissions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  // 🚀 Optimization States
   const [visibleCount, setVisibleCount] = useState(15);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedDay, setExpandedDay] = useState(null);
@@ -18,7 +20,9 @@ export default function DailyRevision() {
         const snap = await getDocs(collection(db, 'daily_tasks'));
         if (!snap.empty) {
           const tasks = snap.docs.map(doc => doc.data());
-          const storedCompletedDays = JSON.parse(localStorage.getItem('psc_completed_days') || '[]');
+          
+          // 🚀 3. Filter using cloud completed days instead of local storage
+          const storedCompletedDays = completedDays || [];
           
           const finishedTasks = tasks
             .filter(task => storedCompletedDays.includes(task.dayNumber))
@@ -26,7 +30,6 @@ export default function DailyRevision() {
             
           setCompletedMissions(finishedTasks);
           
-          // Auto-expand the most recent day if there are any completed missions
           if (finishedTasks.length > 0) {
             setExpandedDay(finishedTasks[0].dayNumber);
           }
@@ -38,7 +41,7 @@ export default function DailyRevision() {
       }
     };
     fetchRevisions();
-  }, []);
+  }, [completedDays]); // 🚀 Add dependency so it auto-refreshes
 
   // 🚀 Fast client-side searching
   const filteredMissions = useMemo(() => {

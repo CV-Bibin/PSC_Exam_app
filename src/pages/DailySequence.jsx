@@ -4,8 +4,12 @@ import { collection, getDocs } from 'firebase/firestore';
 import { Target, Layers, ShieldAlert, Gamepad2, Play, BookOpen, ArrowLeft, Bolt, CheckCircle2, RotateCcw, Unlock, Lock } from 'lucide-react';
 import LearningEngine from '../components/LearningEngine'; 
 import GameEngine from '../components/GameEngine'; 
+import { useAuth } from '../context/AuthContext';
 
 export default function DailySequence() {
+  // 🚀 1. PULL CLOUD DATA & UPDATER
+  const { completedDays: cloudCompletedDays, profile, updateCloudProgress } = useAuth();
+
   const [allMissions, setAllMissions] = useState([]);
   const [mission, setMission] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -26,7 +30,8 @@ export default function DailySequence() {
           tasks.sort((a, b) => a.dayNumber - b.dayNumber);
           setAllMissions(tasks);
           
-          const storedCompletedDays = JSON.parse(localStorage.getItem('psc_completed_days') || '[]');
+          // 🚀 2. READ FROM CLOUD INSTEAD OF LOCAL STORAGE
+          const storedCompletedDays = cloudCompletedDays || [];
           setCompletedDays(storedCompletedDays);
 
           const nextPendingTask = tasks.find(task => !storedCompletedDays.includes(task.dayNumber)) || tasks[tasks.length - 1];
@@ -39,7 +44,7 @@ export default function DailySequence() {
       }
     };
     fetchMissions();
-  }, []);
+  }, [cloudCompletedDays]); // Re-run if cloud data updates
 
   const loadMissionState = (selectedMission) => {
     setMission(selectedMission);
@@ -53,7 +58,6 @@ export default function DailySequence() {
     setDrillsUnlocked(savedStep >= totalChapters && totalChapters > 0);
   };
 
-  // 🚀 CRITICAL FIX: Functional state update prevents React from dropping rapid progression saves
   const handleMarkDrillComplete = (type) => {
     setCompletedDrills(prev => {
       if (!prev.includes(type)) {
@@ -65,15 +69,16 @@ export default function DailySequence() {
     });
   };
 
- const handleUnlockNextDay = () => {
+  // 🚀 3. SYNC DAY COMPLETION TO FIREBASE
+  const handleUnlockNextDay = () => {
     let updatedDays = [...completedDays];
     if (!completedDays.includes(mission.dayNumber)) {
       updatedDays = [...completedDays, mission.dayNumber];
-      setCompletedDays(updatedDays);
-      localStorage.setItem('psc_completed_days', JSON.stringify(updatedDays));
       
-      // 🚀 NEW: This single line tells the Exam Arena to unlock the quizzes!
-      localStorage.setItem('psc_completed_slides', JSON.stringify(updatedDays));
+      // Instantly update the cloud! This makes the Dashboard update.
+      updateCloudProgress({
+         completedDays: updatedDays
+      });
     }
     
     const nextMission = allMissions.find(m => m.dayNumber === mission.dayNumber + 1);
@@ -84,16 +89,17 @@ export default function DailySequence() {
     }
   };
 
+  // 🚀 4. SYNC VAULT & HIGHLIGHTS TO FIREBASE
   const handleMemorizeTopic = (slideHeading, slideContent) => {
-    const existing = JSON.parse(localStorage.getItem('psc_fav_memorized') || '[]');
-    const newNote = { id: Date.now().toString(), heading: slideHeading, content: slideContent };
-    localStorage.setItem('psc_fav_memorized', JSON.stringify([newNote, ...existing]));
+    const existing = profile?.favMemorized || [];
+    const newNote = { id: Date.now().toString(), heading: slideHeading, content: slideContent, type: 'line' };
+    updateCloudProgress({ favMemorized: [newNote, ...existing] });
   };
 
   const handleHighlightSentence = (sentenceText, sourceTopic) => {
-    const existing = JSON.parse(localStorage.getItem('psc_fav_highlights') || '[]');
+    const existing = profile?.favHighlights || [];
     const newHighlight = { id: Date.now().toString(), text: sentenceText, sourceTopic: sourceTopic };
-    localStorage.setItem('psc_fav_highlights', JSON.stringify([newHighlight, ...existing]));
+    updateCloudProgress({ favHighlights: [newHighlight, ...existing] });
   };
 
   if (isLoading) return <div className="flex justify-center items-center h-[70vh]"><div className="animate-spin w-12 h-12 border-4 border-brand-500 border-t-transparent rounded-full"></div></div>;

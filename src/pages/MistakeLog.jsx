@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { History, CheckCircle2, RotateCcw, Target, AlertOctagon, BrainCircuit, Lock, ChevronDown, Lightbulb } from 'lucide-react';
 import GameEngine from '../components/GameEngine';
+import { useAuth } from '../context/AuthContext';
 
 export default function MistakeLog() {
   const [mistakes, setMistakes] = useState([]);
@@ -11,32 +12,33 @@ export default function MistakeLog() {
   // 🚀 UI Optimization
   const [visibleCount, setVisibleCount] = useState(15);
 
+  // 🚀 Pull cloud data directly
+  const { mistakes: cloudMistakes, profile, updateCloudProgress } = useAuth();
+
   useEffect(() => {
-    // 1. Load Mistakes
-    const loadMistakes = () => {
-      const stored = JSON.parse(localStorage.getItem('psc_mistakes') || '[]');
-      const formatted = stored.map(m => ({
+    // 1. Load Mistakes from Cloud
+    if (cloudMistakes) {
+      const formatted = cloudMistakes.map(m => ({
         ...m,
         streak: m.streak || 0,
         correct_answer: m.correct_answer || m.correct || m.fact || "Answer missing",
-      })).reverse(); // Show newest mistakes at the top
+      })).reverse(); 
       
       setMistakes(formatted);
-    };
-    loadMistakes();
+    }
 
-    // 2. Check 7-Day Cooldown Lock
-    const lastDrillTime = localStorage.getItem('psc_last_remedial_drill');
+    // 2. Check 7-Day Cooldown Lock from Cloud Profile
+    const lastDrillTime = profile?.lastRemedialDrill;
     if (lastDrillTime) {
       const nextDate = new Date(new Date(lastDrillTime).getTime() + (7 * 24 * 60 * 60 * 1000));
       if (new Date() < nextDate) {
         setNextAvailableDate(nextDate);
       }
     }
-  }, []);
+  }, [cloudMistakes, profile]);
 
   const activeMistakes = mistakes.filter(m => m.streak < 3);
-  const masteredCount = JSON.parse(localStorage.getItem('psc_mastered_count') || '0');
+  const masteredCount = profile?.masteredCount || 0;
 
   // 🚀 THE SHUFFLE ENGINE: Randomizes Questions AND Options!
   const launchShuffledDrill = () => {
@@ -117,9 +119,12 @@ export default function MistakeLog() {
     setMistakes(updatedMistakes);
     setNextAvailableDate(nextDate); 
     
-    localStorage.setItem('psc_mistakes', JSON.stringify(updatedMistakes.reverse())); // Store original order
-    localStorage.setItem('psc_last_remedial_drill', now.toISOString());
-    localStorage.setItem('psc_mastered_count', (parseInt(masteredCount) + newlyMastered).toString());
+  // 🚀 FIREBASE SYNC: Save all changes directly to the cloud
+    updateCloudProgress({
+      mistakes: updatedMistakes.reverse(), // Keep chronological order in DB
+      lastRemedialDrill: now.toISOString(),
+      masteredCount: parseInt(masteredCount) + newlyMastered
+    });
   };
 
   if (isDrillActive && drillCurriculum) {

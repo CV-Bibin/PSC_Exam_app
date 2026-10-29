@@ -238,16 +238,61 @@ export default function ExamArena() {
   const completedModuleExams = allCompletedExams.filter(id => [...grandMocks, ...weeklyMocks].some(m => m.id === id)).length;
   const pendingExamsCount = Math.max(0, totalModuleExams - completedModuleExams);
 
-  const handleLaunchExam = (exam) => {
+const handleLaunchExam = (exam) => {
     const statusData = getExamStatus(exam);
     if (statusData.id === 'time_locked') return;
 
-    if (['daily', 'weekly', 'monthly'].includes(exam.type)) {
-      localStorage.setItem('psc_temp_exam_payload', JSON.stringify(exam));
-      navigate(statusData.id === 'locked' ? `/exam/dynamic_${exam.id}?mode=review` : `/exam/dynamic_${exam.id}`);
-    } else {
-      navigate(statusData.id === 'locked' ? `/exam/${exam.id}?mode=review` : `/exam/${exam.id}`);
-    }
+    const shuffleArray = (array) => {
+      const newArray = [...array];
+      for (let i = newArray.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+      }
+      return newArray;
+    };
+
+    const shuffleQuestionsAndOptions = (rawQuestions) => {
+      if (!rawQuestions) return [];
+      
+      // 🚀 FIX: Convert object to flat array if it's structured as { mcq: [], trap: [] }
+      let flatQuestions = [];
+      if (Array.isArray(rawQuestions)) {
+        flatQuestions = rawQuestions;
+      } else {
+        flatQuestions = [
+          ...(rawQuestions.mcq || []).map(q => ({ ...q, gameType: 'mcq' })),
+          ...(rawQuestions.trap || []).map(q => ({
+            ...q,
+            gameType: 'trap',
+            options: ['FACT (True)', 'TRAP (False)'],
+            correct_answer: (q.is_true === true || String(q.correct_answer).toLowerCase().includes("fact") || String(q.correct_answer).toLowerCase().includes("true")) ? 'FACT (True)' : 'TRAP (False)'
+          }))
+        ];
+      }
+
+      // Shuffle options for MCQs only
+      const questionsWithOptionsShuffled = flatQuestions.map(q => {
+        if (!q.options || !Array.isArray(q.options) || q.options.length < 2 || q.gameType === 'trap') return q;
+        return { ...q, options: shuffleArray(q.options) };
+      });
+
+      // Shuffle the final question order
+      return shuffleArray(questionsWithOptionsShuffled);
+    };
+
+    const examWithShuffledOptions = {
+      ...exam,
+      questions: shuffleQuestionsAndOptions(exam.questions || exam.quizzes || []) 
+    };
+
+    const targetPath = statusData.id === 'locked' ? '?mode=review' : '';
+    const basePath = ['daily', 'weekly', 'monthly'].includes(exam.type) 
+      ? `/exam/dynamic_${exam.id}` 
+      : `/exam/${exam.id}`;
+    
+    navigate(basePath + targetPath, { 
+      state: { examPayload: examWithShuffledOptions } 
+    });
   };
 
   if (isLoading) {

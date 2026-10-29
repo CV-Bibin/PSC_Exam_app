@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { 
@@ -13,17 +14,20 @@ export default function Favorites() {
   const [highlightedLines, setHighlightedLines] = useState([]);
   const [memorizedNotes, setMemorizedNotes] = useState([]);
 
-  useEffect(() => {
-    setFavoriteQuestions(JSON.parse(localStorage.getItem('psc_fav_questions') || '[]'));
-    setHighlightedLines(JSON.parse(localStorage.getItem('psc_fav_highlights') || '[]'));
-    setMemorizedNotes(JSON.parse(localStorage.getItem('psc_fav_memorized') || '[]'));
-  }, []);
+ // 🚀 Pull Vault data from Firebase user profile
+  const { profile, updateCloudProgress } = useAuth();
 
-  const removeQuestion = (idToRemove) => {
+  useEffect(() => {
+    setFavoriteQuestions(profile?.favQuestions || []);
+    setHighlightedLines(profile?.favHighlights || []);
+    setMemorizedNotes(profile?.favMemorized || []);
+  }, [profile]);
+
+ const removeQuestion = (idToRemove) => {
     if (window.confirm("Remove this question from your favorites?")) {
       const updated = favoriteQuestions.filter(q => q.id !== idToRemove);
       setFavoriteQuestions(updated);
-      localStorage.setItem('psc_fav_questions', JSON.stringify(updated));
+      updateCloudProgress({ favQuestions: updated }); // 🚀 Cloud Sync
     }
   };
 
@@ -31,7 +35,7 @@ export default function Favorites() {
     if (window.confirm("Remove this highlight?")) {
       const updated = highlightedLines.filter(h => h.id !== idToRemove);
       setHighlightedLines(updated);
-      localStorage.setItem('psc_fav_highlights', JSON.stringify(updated));
+      updateCloudProgress({ favHighlights: updated }); // 🚀 Cloud Sync
     }
   };
 
@@ -39,7 +43,7 @@ export default function Favorites() {
     if (window.confirm("Remove this insight from your vault?")) {
       const updated = memorizedNotes.filter(m => m.id !== idToRemove);
       setMemorizedNotes(updated);
-      localStorage.setItem('psc_fav_memorized', JSON.stringify(updated));
+      updateCloudProgress({ favMemorized: updated }); // 🚀 Cloud Sync
     }
   };
 

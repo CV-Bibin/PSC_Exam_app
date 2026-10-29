@@ -1,14 +1,21 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { db } from '../services/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { Target, ShieldAlert, Clock, Database, Play, AlertTriangle } from 'lucide-react';
 import GameEngine from './GameEngine'; 
 
+
 export default function ActiveExam() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams(); 
+  
+  // 🚀 Catch the shuffled payload from React Router memory
+  const { state } = useLocation(); 
+  // 🚀 Pull cloud history to check attempts
+  const { globalScores } = useAuth();
   
   const [examData, setExamData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -21,8 +28,8 @@ export default function ActiveExam() {
     const fetchExam = async () => {
       try {
         if (id.startsWith('dynamic_')) {
-          const payload = JSON.parse(localStorage.getItem('psc_temp_exam_payload'));
-          if (payload) setExamData(payload);
+          // 🚀 Read directly from memory state instead of local storage
+          if (state?.examPayload) setExamData(state.examPayload);
           setLoading(false);
           return; 
         }
@@ -99,7 +106,8 @@ export default function ActiveExam() {
     );
   }
 
-  const attemptsMade = parseInt(localStorage.getItem(`psc_attempts_${trueExamId}`) || '0');
+ // 🚀 Count attempts by finding how many times this exam ID appears in their cloud history
+  const attemptsMade = (globalScores || []).filter(score => score.examId === trueExamId).length;
   const maxAllowed = examData?.maxAttempts === 'unlimited' ? Infinity : parseInt(examData?.maxAttempts || 1);
   const isExhausted = attemptsMade >= maxAllowed;
   const forceReview = isExhausted || isReviewUrl;
@@ -169,6 +177,10 @@ export default function ActiveExam() {
     );
   }
 
+ // 🚀 FIX: Extract the day number from the exam ID so Firebase registers the slide completion
+  const dayMatch = trueExamId.match(/^daily_(\d+)$/);
+  const extractedDayNumber = dayMatch ? parseInt(dayMatch[1], 10) : null;
+
   return (
     <div className="pt-4 h-full animate-in fade-in duration-500">
       <GameEngine 
@@ -176,6 +188,7 @@ export default function ActiveExam() {
         curriculumData={examData} 
         isExamMode={true} 
         examId={trueExamId}
+        dayNumber={extractedDayNumber} // <-- This triggers the Firebase save
         forceReviewMode={forceReview} 
         onExit={() => navigate('/arena')} 
       />

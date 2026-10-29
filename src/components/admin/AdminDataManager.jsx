@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../services/firebase';
 import { collection, getDocs, doc, deleteDoc, updateDoc, query, orderBy, writeBatch } from 'firebase/firestore';
-import { Database, Users, Trash2, Edit3, AlertTriangle, X, Target, Save, Clock, BarChart3, Search, Award, Settings, BookOpen, ShieldAlert, Radio } from 'lucide-react';
+import { Database, Users, Trash2, Edit3, AlertTriangle, X, Target, Save, Clock, BarChart3, Search, Award, Settings, BookOpen, ShieldAlert, Radio, Eye, EyeOff, Image as ImageIcon } from 'lucide-react';
 
 export default function AdminDataManager() {
   const [activeTab, setActiveTab] = useState('tasks');
@@ -10,7 +10,6 @@ export default function AdminDataManager() {
   const [tasks, setTasks] = useState([]);
   const [exams, setExams] = useState([]);
   const [liveExams, setLiveExams] = useState([]);
-  const [results, setResults] = useState([]);
   
   const [studentStats, setStudentStats] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null); 
@@ -21,84 +20,56 @@ export default function AdminDataManager() {
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
   const [editModal, setEditModal] = useState({ isOpen: false, item: null, collectionName: '' });
   const [saveStatus, setSaveStatus] = useState('');
+  
+  // 🚀 NEW: State for expanding mini slide views
+  const [expandedTaskId, setExpandedTaskId] = useState(null);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Fetch Syllabus Courses
       const courseSnap = await getDocs(collection(db, 'courses'));
       setCourses(courseSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-      // Fetch Daily Missions
       const taskSnap = await getDocs(query(collection(db, 'daily_tasks'), orderBy('dayNumber', 'asc')));
       setTasks(taskSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-      // Fetch Weekly/Grand Mocks
       const examSnap = await getDocs(query(collection(db, 'weekly_mocks'), orderBy('createdAt', 'desc')));
       setExams(examSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-      // Fetch Live Quizzes
       const liveSnap = await getDocs(query(collection(db, 'live_quizzes'), orderBy('scheduledStartTime', 'desc')));
       setLiveExams(liveSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-      // 🚀 THE FIX: Fetch from the 'users' collection first!
+      // 🚀 UPGRADED: Fetch accurate user data directly from the newly synced 'users' collection
       const usersSnap = await getDocs(collection(db, 'users'));
-      const userAggregates = {};
+      const statsArray = [];
       
       usersSnap.docs.forEach(doc => {
-        const userData = doc.data();
-        const email = userData.email || 'Unknown';
-        // Initialize EVERY registered user on the dashboard, even with 0 scores
-        userAggregates[email] = {
-          email: email,
-          examsTaken: 0,
-          totalScore: 0,
-          totalQuestions: 0,
-          lastActive: userData.createdAt || null, 
-          history: [],
-          ...userData 
-        };
+        const data = doc.data();
+        const globalScores = data.globalScores || [];
+        const completedDays = data.completedDays || [];
+        
+        const totalScore = globalScores.reduce((sum, res) => sum + (res.score || 0), 0);
+        const totalQuestions = globalScores.reduce((sum, res) => sum + (res.total || 0), 0);
+        
+        // Find latest activity date from their exam history
+        let latestDate = data.createdAt;
+        if (globalScores.length > 0) {
+          const sortedScores = [...globalScores].sort((a, b) => new Date(b.date) - new Date(a.date));
+          latestDate = sortedScores[0].date;
+        }
+
+        statsArray.push({
+          email: data.email || 'Unknown',
+          examsTaken: globalScores.length,
+          totalScore: totalScore,
+          totalQuestions: totalQuestions,
+          missionsCleared: completedDays.length,
+          accuracy: totalQuestions > 0 ? Math.round((totalScore / totalQuestions) * 100) : 0,
+          lastActive: latestDate,
+          history: [...globalScores].sort((a, b) => new Date(b.date) - new Date(a.date))
+        });
       });
 
-      // Fetch Results & Merge them into the users
-      const resultSnap = await getDocs(query(collection(db, 'exam_results'), orderBy('submittedAt', 'desc')));
-      const rawResults = resultSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setResults(rawResults);
-
-      rawResults.forEach(res => {
-        const email = res.email || 'Anonymous Student';
-        
-        // Failsafe: If a student took an exam but isn't in 'users' somehow, add them
-        if (!userAggregates[email]) {
-          userAggregates[email] = {
-            email: email,
-            examsTaken: 0,
-            totalScore: 0,
-            totalQuestions: 0,
-            lastActive: res.submittedAt,
-            history: []
-          };
-        }
-        
-        userAggregates[email].examsTaken += 1;
-        userAggregates[email].totalScore += (res.score || 0);
-        userAggregates[email].totalQuestions += (res.totalQuestions || 0);
-        
-        // Update last active date based on their most recent exam
-        if (!userAggregates[email].lastActive || (res.submittedAt && res.submittedAt > userAggregates[email].lastActive)) {
-          userAggregates[email].lastActive = res.submittedAt;
-        }
-        
-        userAggregates[email].history.push(res);
-      });
-
-      // Calculate overall accuracy
-      const statsArray = Object.values(userAggregates).map(student => ({
-        ...student,
-        accuracy: student.totalQuestions > 0 ? Math.round((student.totalScore / student.totalQuestions) * 100) : 0
-      }));
-
-      // Sort by total score (Leaderboard style)
       statsArray.sort((a, b) => b.totalScore - a.totalScore);
       setStudentStats(statsArray);
 
@@ -163,7 +134,13 @@ export default function AdminDataManager() {
       if (type === 'special_quizzes') updatedItem.curriculumData.special_quizzes[questionIndex].correct_answer = newAnswer;
       if (type === 'quizzes') updatedItem.curriculumData.quizzes[questionIndex].correct_answer = newAnswer;
     } else {
-      if (updatedItem.questions[type]) {
+      // 🚀 FIXED: Handle flat array structures for Weekly/Live exams
+      if (Array.isArray(updatedItem.questions)) {
+        updatedItem.questions[questionIndex].correct_answer = newAnswer;
+        if (updatedItem.questions[questionIndex].is_true !== undefined) {
+          updatedItem.questions[questionIndex].is_true = (newAnswer === 'true');
+        }
+      } else if (updatedItem.questions[type]) {
         updatedItem.questions[type][questionIndex].correct_answer = newAnswer;
         if (type === 'trap') updatedItem.questions[type][questionIndex].is_true = (newAnswer === 'true');
       }
@@ -193,7 +170,6 @@ export default function AdminDataManager() {
 
   const filteredStudents = studentStats.filter(s => s.email.toLowerCase().includes(searchQuery.toLowerCase()));
 
-  // 🚀 Safe Date Formatter
   const formatLastActive = (timestamp) => {
     if (!timestamp) return 'Recent';
     if (timestamp.toDate) return timestamp.toDate().toLocaleDateString();
@@ -230,32 +206,68 @@ export default function AdminDataManager() {
               <p className="text-xs text-slate-400 mt-1">Review, edit quizzes, or delete daily deployments.</p>
             </div>
           </div>
-          <div className="divide-y divide-slate-800/50 max-h-[600px] overflow-y-auto custom-scrollbar">
+          <div className="divide-y divide-slate-800/50 max-h-[700px] overflow-y-auto custom-scrollbar">
             {tasks.map(task => (
-              <div key={task.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-800/50 transition">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="px-2 py-0.5 bg-brand-500/20 text-brand-400 font-bold text-[10px] rounded">Day {task.dayNumber}</span>
-                    <span className="text-sm font-bold text-slate-200">{task.title}</span>
+              <div key={task.id} className="flex flex-col transition hover:bg-slate-800/20">
+                <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="px-2 py-0.5 bg-brand-500/20 text-brand-400 font-bold text-[10px] rounded">Day {task.dayNumber}</span>
+                      <span className="text-sm font-bold text-slate-200">{task.title}</span>
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {task.curriculumData?.study_material?.length || 0} Slides • {task.curriculumData?.quizzes?.length || 0} MCQs
+                    </div>
                   </div>
-                  <div className="text-xs text-slate-500">
-                    {task.curriculumData?.study_material?.length || 0} Slides • {task.curriculumData?.quizzes?.length || 0} MCQs
+                  <div className="flex items-center gap-2">
+                    {/* 🚀 NEW: Mini Slide View Toggle */}
+                    <button 
+                      onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
+                      className={`px-3 py-1.5 font-bold text-[11px] uppercase tracking-widest rounded-lg transition flex items-center gap-1.5 ${expandedTaskId === task.id ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-800 text-sky-400/70 hover:bg-slate-700 hover:text-sky-300'}`}
+                    >
+                      {expandedTaskId === task.id ? <EyeOff size={14} /> : <Eye size={14} />} 
+                      {expandedTaskId === task.id ? 'Hide Slides' : 'View Slides'}
+                    </button>
+                    <button 
+                      onClick={() => handleOpenEdit(task, 'daily_tasks')}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-bold text-[11px] uppercase tracking-widest rounded-lg transition flex items-center gap-1.5"
+                    >
+                      <Edit3 size={14} /> Edit Quizzes
+                    </button>
+                    <button 
+                      onClick={() => triggerDelete('daily_tasks', task.id, `Day ${task.dayNumber}: ${task.title}`)}
+                      className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
+                    >
+                      <Trash2 size={18} />
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={() => handleOpenEdit(task, 'daily_tasks')}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-bold text-[11px] uppercase tracking-widest rounded-lg transition flex items-center gap-1.5"
-                  >
-                    <Edit3 size={14} /> Edit Quizzes
-                  </button>
-                  <button 
-                    onClick={() => triggerDelete('daily_tasks', task.id, `Day ${task.dayNumber}: ${task.title}`)}
-                    className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                </div>
+
+                {/* 🚀 NEW: Mini Real Slide View Expansion */}
+                {expandedTaskId === task.id && task.curriculumData?.study_material && (
+                  <div className="p-4 pt-0 animate-in slide-in-from-top-2 duration-300">
+                    <div className="bg-slate-950/50 p-4 rounded-xl border border-slate-800 shadow-inner grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {task.curriculumData.study_material.map((slide, sIdx) => (
+                        <div key={sIdx} className="bg-slate-900 border border-slate-700/50 p-3 rounded-lg flex flex-col hover:border-brand-500/50 transition-colors">
+                          {slide.image_url ? (
+                            <div className="w-full h-24 mb-3 rounded-md overflow-hidden bg-slate-950 border border-slate-800">
+                              <img src={slide.image_url} alt="Slide Visual" className="w-full h-full object-cover" />
+                            </div>
+                          ) : (
+                            <div className="w-full h-10 mb-3 rounded-md bg-slate-950 border border-slate-800 flex items-center justify-center text-slate-700">
+                              <ImageIcon size={16} />
+                            </div>
+                          )}
+                          <span className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">Slide {sIdx + 1}: {slide.type}</span>
+                          <h5 className="text-xs font-bold text-white mb-2 truncate" title={slide.heading}>{slide.heading}</h5>
+                          <p className="text-[10px] text-slate-400 line-clamp-4 leading-relaxed whitespace-pre-wrap flex-1">
+                            {slide.content}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
             {tasks.length === 0 && <div className="p-8 text-center text-slate-500 text-sm">No tasks generated yet.</div>}
@@ -308,7 +320,7 @@ export default function AdminDataManager() {
                       </span>
                       <span className="text-sm font-bold text-slate-200">{exam.title}</span>
                     </div>
-                    <div className="text-xs text-slate-500">{exam.totalQuestions || 0} Questions • {exam.timeLimitMinutes} Mins</div>
+                    <div className="text-xs text-slate-500">{(exam.questions?.length || exam.totalQuestions) || 0} Questions • {exam.timeLimitMinutes} Mins</div>
                   </div>
                   <div className="flex items-center gap-2">
                     <button onClick={() => handleOpenEdit(exam, 'weekly_mocks')} className="px-3 py-1.5 bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-bold text-[11px] uppercase tracking-widest rounded-lg transition flex items-center gap-1.5">
@@ -355,6 +367,7 @@ export default function AdminDataManager() {
                   <tr className="bg-slate-950 border-b border-slate-800 text-xs font-black uppercase tracking-widest text-slate-500">
                     <th className="p-4">Student Identification</th>
                     <th className="p-4">Exams Taken</th>
+                    <th className="p-4">Slides Cleared</th>
                     <th className="p-4">Total Score</th>
                     <th className="p-4">Global Accuracy</th>
                     <th className="p-4 text-right">Action</th>
@@ -362,7 +375,7 @@ export default function AdminDataManager() {
                 </thead>
                 <tbody className="divide-y divide-slate-800/50">
                   {filteredStudents.length === 0 ? (
-                    <tr><td colSpan="5" className="p-8 text-center text-slate-500 font-bold">No students found.</td></tr>
+                    <tr><td colSpan="6" className="p-8 text-center text-slate-500 font-bold">No students found.</td></tr>
                   ) : (
                     filteredStudents.map((student, idx) => (
                       <tr key={idx} className="hover:bg-slate-800/30 transition group">
@@ -375,6 +388,9 @@ export default function AdminDataManager() {
                         </td>
                         <td className="p-4">
                           <span className="bg-slate-950 border border-slate-800 px-3 py-1 rounded-lg text-slate-300 font-mono font-bold text-xs">{student.examsTaken}</span>
+                        </td>
+                        <td className="p-4">
+                          <span className="bg-slate-950 border border-slate-800 px-3 py-1 rounded-lg text-sky-400 font-mono font-bold text-xs">{student.missionsCleared}</span>
                         </td>
                         <td className="p-4 font-black text-brand-400">{student.totalScore} pts</td>
                         <td className="p-4">
@@ -480,18 +496,18 @@ export default function AdminDataManager() {
                 <div className="text-center py-10 text-slate-500 font-bold">This student has not submitted any exams yet.</div>
               ) : (
                 selectedStudent.history.map((res, i) => {
-                  const date = formatLastActive(res.submittedAt);
-                  const pct = Math.round((res.score / res.totalQuestions) * 100);
+                  const date = formatLastActive(res.date || res.submittedAt);
+                  const pct = Math.round((res.score / res.total) * 100);
                   return (
                     <div key={i} className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex justify-between items-center shadow-sm">
                       <div>
-                        <p className="font-bold text-slate-200 text-sm">{res.examType || 'Assessment'}</p>
+                        <p className="font-bold text-slate-200 text-sm">{res.examId || 'Assessment'}</p>
                         <p className="text-[10px] text-slate-500 font-mono mt-1">{date}</p>
                       </div>
                       <div className="flex gap-4 items-center">
                         <div className="text-right">
                           <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Score</p>
-                          <p className="font-black text-white">{res.score}/{res.totalQuestions}</p>
+                          <p className="font-black text-white">{res.score}/{res.total}</p>
                         </div>
                         <div className={`px-3 py-1.5 rounded-lg border text-xs font-black ${pct >= 80 ? 'bg-emerald-950/30 border-emerald-500/50 text-emerald-400' : pct >= 50 ? 'bg-amber-950/30 border-amber-500/50 text-amber-400' : 'bg-rose-950/30 border-rose-500/50 text-rose-400'}`}>
                           {pct}%
@@ -549,19 +565,20 @@ export default function AdminDataManager() {
               )}
 
               {['weekly_mocks', 'live_quizzes'].includes(editModal.collectionName) && editModal.item.questions && (
-                <>
-                  {editModal.item.questions.mcq?.length > 0 && (
-                    <div className="space-y-4">
-                      <h4 className="text-sm font-black text-brand-400 uppercase tracking-widest flex items-center gap-2"><Database size={16}/> MCQs</h4>
-                      {editModal.item.questions.mcq.map((q, idx) => (
+                <div className="space-y-4">
+                  {/* 🚀 FIXED: Renders perfectly whether it's a flat array or an object */}
+                  {Array.isArray(editModal.item.questions) ? (
+                    <>
+                      <h4 className="text-sm font-black text-brand-400 uppercase tracking-widest flex items-center gap-2"><Database size={16}/> Assessment Questions</h4>
+                      {editModal.item.questions.map((q, idx) => (
                         <div key={idx} className="bg-slate-900 p-4 rounded-xl border border-slate-800">
-                          <p className="font-semibold text-white text-sm mb-3">Q{idx + 1}: {q.question}</p>
+                          <p className="font-semibold text-white text-sm mb-3">Q{idx + 1}: {q.question || q.statement}</p>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {q.options?.map((opt, oIdx) => (
                               <button
                                 key={oIdx}
-                                onClick={() => handleUpdateAnswer(idx, opt, 'mcq')}
-                                className={`p-2 rounded-lg text-xs font-semibold text-left transition border ${opt === q.correct_answer ? 'bg-emerald-950/30 border-emerald-500/50 text-emerald-400 shadow-inner' : 'bg-slate-950 border-slate-800 text-slate-500 hover:bg-slate-800'}`}
+                                onClick={() => handleUpdateAnswer(idx, opt, 'flat')}
+                                className={`p-2 rounded-lg text-xs font-semibold text-left transition border ${opt === (q.correct_answer || q.correct) ? 'bg-emerald-950/30 border-emerald-500/50 text-emerald-400 shadow-inner' : 'bg-slate-950 border-slate-800 text-slate-500 hover:bg-slate-800'}`}
                               >
                                 {opt}
                               </button>
@@ -569,24 +586,48 @@ export default function AdminDataManager() {
                           </div>
                         </div>
                       ))}
-                    </div>
-                  )}
-
-                  {editModal.item.questions.trap?.length > 0 && (
-                    <div className="space-y-4 mt-8">
-                      <h4 className="text-sm font-black text-rose-400 uppercase tracking-widest flex items-center gap-2"><ShieldAlert size={16}/> Spot the Trap</h4>
-                      {editModal.item.questions.trap.map((q, idx) => (
-                        <div key={idx} className="bg-slate-900 p-4 rounded-xl border border-slate-800">
-                          <p className="font-semibold text-white text-sm mb-3">"{q.statement}"</p>
-                          <div className="flex gap-2">
-                            <button onClick={() => handleUpdateAnswer(idx, 'true', 'trap')} className={`px-4 py-2 rounded-lg text-xs font-bold transition border ${q.is_true ? 'bg-emerald-950/30 border-emerald-500/50 text-emerald-400' : 'bg-slate-950 border-slate-800 text-slate-500'}`}>Fact (True)</button>
-                            <button onClick={() => handleUpdateAnswer(idx, 'false', 'trap')} className={`px-4 py-2 rounded-lg text-xs font-bold transition border ${!q.is_true ? 'bg-rose-950/30 border-rose-500/50 text-rose-400' : 'bg-slate-950 border-slate-800 text-slate-500'}`}>Trap (False)</button>
-                          </div>
+                    </>
+                  ) : (
+                    <>
+                      {editModal.item.questions.mcq?.length > 0 && (
+                        <div className="space-y-4">
+                          <h4 className="text-sm font-black text-brand-400 uppercase tracking-widest flex items-center gap-2"><Database size={16}/> MCQs</h4>
+                          {editModal.item.questions.mcq.map((q, idx) => (
+                            <div key={idx} className="bg-slate-900 p-4 rounded-xl border border-slate-800">
+                              <p className="font-semibold text-white text-sm mb-3">Q{idx + 1}: {q.question}</p>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {q.options?.map((opt, oIdx) => (
+                                  <button
+                                    key={oIdx}
+                                    onClick={() => handleUpdateAnswer(idx, opt, 'mcq')}
+                                    className={`p-2 rounded-lg text-xs font-semibold text-left transition border ${opt === q.correct_answer ? 'bg-emerald-950/30 border-emerald-500/50 text-emerald-400 shadow-inner' : 'bg-slate-950 border-slate-800 text-slate-500 hover:bg-slate-800'}`}
+                                  >
+                                    {opt}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      )}
+
+                      {editModal.item.questions.trap?.length > 0 && (
+                        <div className="space-y-4 mt-8">
+                          <h4 className="text-sm font-black text-rose-400 uppercase tracking-widest flex items-center gap-2"><ShieldAlert size={16}/> Spot the Trap</h4>
+                          {editModal.item.questions.trap.map((q, idx) => (
+                            <div key={idx} className="bg-slate-900 p-4 rounded-xl border border-slate-800">
+                              <p className="font-semibold text-white text-sm mb-3">"{q.statement}"</p>
+                              <div className="flex gap-2">
+                                <button onClick={() => handleUpdateAnswer(idx, 'true', 'trap')} className={`px-4 py-2 rounded-lg text-xs font-bold transition border ${q.is_true ? 'bg-emerald-950/30 border-emerald-500/50 text-emerald-400' : 'bg-slate-950 border-slate-800 text-slate-500'}`}>Fact (True)</button>
+                                <button onClick={() => handleUpdateAnswer(idx, 'false', 'trap')} className={`px-4 py-2 rounded-lg text-xs font-bold transition border ${!q.is_true ? 'bg-rose-950/30 border-rose-500/50 text-rose-400' : 'bg-slate-950 border-slate-800 text-slate-500'}`}>Trap (False)</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
-                </>
+                </div>
               )}
             </div>
             <div className="p-4 bg-slate-900 border-t border-slate-800 flex justify-between items-center shrink-0">

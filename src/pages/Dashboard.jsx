@@ -12,7 +12,16 @@ import { useAuth } from '../context/AuthContext';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  
+  // 🚀 1. PULL CLOUD DATA FROM CONTEXT (Renaming slightly to avoid conflicts with your state)
+  const { 
+    user, 
+    completedDays: cloudCompletedDays, 
+    dailyCompletionsLog: cloudCompletionsLog, 
+    globalScores, 
+    completedExams, 
+    mistakes 
+  } = useAuth();
 
   const [userName, setUserName] = useState('Aspirant');
   const [greeting, setGreeting] = useState('Hello');
@@ -57,17 +66,17 @@ export default function Dashboard() {
       setUserName(resolvedName.charAt(0).toUpperCase() + resolvedName.slice(1));
     }
 
-    const fetchData = async () => {
+  const fetchData = async () => {
       try {
-        const storedCompleted = JSON.parse(localStorage.getItem('psc_completed_days') || '[]');
+        // 🚀 2. INJECT CLOUD DATA INTO YOUR UI STATES
+        const storedCompleted = cloudCompletedDays || [];
         setCompletedDays(storedCompleted);
 
-        const completionsLog = JSON.parse(localStorage.getItem('psc_daily_completions_log') || '{}');
+        const completionsLog = cloudCompletionsLog || {};
         setDayCompletionsMap(completionsLog);
 
-        const globalScores = JSON.parse(localStorage.getItem('psc_global_scores') || '[]');
         const examMap = {};
-        globalScores.forEach(res => {
+        (globalScores || []).forEach(res => {
           if (res.date) {
             const dateKey = new Date(res.date).toISOString().split('T')[0];
             if (!examMap[dateKey]) examMap[dateKey] = [];
@@ -76,11 +85,9 @@ export default function Dashboard() {
         });
         setExamHistoryMap(examMap);
 
-        const storedExams = JSON.parse(localStorage.getItem('psc_completed_exams') || '[]');
-        setCompletedExamsCount(storedExams.length);
+        setCompletedExamsCount((completedExams || []).length);
 
-        const mistakes = JSON.parse(localStorage.getItem('psc_mistakes') || '[]');
-        const activeMistakes = mistakes.filter(m => (m.streak || 0) < 3);
+        const activeMistakes = (mistakes || []).filter(m => (m.streak || 0) < 3);
         setPendingMistakesCount(activeMistakes.length);
 
         const favQ = JSON.parse(localStorage.getItem('psc_fav_questions') || '[]').length;
@@ -125,7 +132,7 @@ export default function Dashboard() {
       finally { setIsLoading(false); }
     };
     fetchData();
-  }, [isSunday, user]);
+  }, [isSunday, user, cloudCompletedDays, cloudCompletionsLog, globalScores, completedExams, mistakes]);
 
   const calendarData = useMemo(() => {
     const year = currentCalendarDate.getFullYear();
