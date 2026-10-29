@@ -1,35 +1,39 @@
 import { useState, useEffect, useMemo } from 'react';
-import { 
-  HardHat, Target, Check, Layers, Bolt, ShieldAlert, Trophy, 
+import {
+  Target, Check, Layers, Bolt, ShieldAlert, Trophy,
   RotateCcw, Play, Calendar as CalendarIcon, Flame, BookCheck, Swords,
-  ChevronLeft, ChevronRight, Bookmark, Activity, BellRing, 
-  Radio, History, AlertOctagon, X, Zap, CheckCircle2, TrendingUp
+  ChevronLeft, ChevronRight, Bookmark, Activity, BellRing,
+  Radio, History, AlertOctagon, X, Zap, TrendingUp, BookOpen, CheckCircle2, HardHat, Lock
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../services/firebase';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { useAuth } from '../context/AuthContext';
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const [userName, setUserName] = useState('Aspirant');
+  const [greeting, setGreeting] = useState('Hello');
+
   const [activeMission, setActiveMission] = useState(null);
   const [completedDays, setCompletedDays] = useState([]);
-  const [pendingTestDays, setPendingTestDays] = useState([]); 
+  const [pendingTestDays, setPendingTestDays] = useState([]);
   const [examState, setExamState] = useState(null);
   const [completedExamsCount, setCompletedExamsCount] = useState(0);
   const [vaultItemsCount, setVaultItemsCount] = useState(0);
-  
-  // States for Notifications & Telemetry
+
   const [liveExams, setLiveExams] = useState([]);
   const [pendingMistakesCount, setPendingMistakesCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isAllCaughtUp, setIsAllCaughtUp] = useState(false);
   const [showToast, setShowToast] = useState(false);
+  const [totalAvailableSlides, setTotalAvailableSlides] = useState(1);
 
-  // 🚀 Pro Calendar Intelligence State
-  const [dayCompletionsMap, setDayCompletionsMap] = useState({}); // { 'YYYY-MM-DD': [slideNumbers] }
-  const [examHistoryMap, setExamHistoryMap] = useState({});     // { 'YYYY-MM-DD': [{ examId, score, total }] }
+  const [dayCompletionsMap, setDayCompletionsMap] = useState({});
+  const [examHistoryMap, setExamHistoryMap] = useState({});
 
-  // Calendar State
   const [currentCalendarDate, setCurrentCalendarDate] = useState(new Date());
   const [startDateStr] = useState(() => {
     let saved = localStorage.getItem('psc_start_date');
@@ -43,12 +47,21 @@ export default function Dashboard() {
   const isSunday = new Date().getDay() === 0;
 
   useEffect(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) setGreeting('Good Morning');
+    else if (hour < 18) setGreeting('Good Afternoon');
+    else setGreeting('Good Evening');
+
+    if (user) {
+      const resolvedName = user.displayName || (user.email ? user.email.split('@')[0] : 'Aspirant');
+      setUserName(resolvedName.charAt(0).toUpperCase() + resolvedName.slice(1));
+    }
+
     const fetchData = async () => {
       try {
         const storedCompleted = JSON.parse(localStorage.getItem('psc_completed_days') || '[]');
         setCompletedDays(storedCompleted);
 
-        // 🚀 Pro Intelligence: Map multi-completions & exam scores from local storage/history
         const completionsLog = JSON.parse(localStorage.getItem('psc_daily_completions_log') || '{}');
         setDayCompletionsMap(completionsLog);
 
@@ -85,6 +98,10 @@ export default function Dashboard() {
           setTimeout(() => setShowToast(true), 1500);
         }
 
+        const taskSnap = await getDocs(collection(db, 'daily_tasks'));
+        const tasks = taskSnap.docs.map(doc => doc.data()).sort((a, b) => a.dayNumber - b.dayNumber);
+        setTotalAvailableSlides(Math.max(1, tasks.length));
+
         if (isSunday) {
           const testedDays = JSON.parse(localStorage.getItem('psc_tested_days') || '[]');
           const daysToTest = storedCompleted.filter(day => !testedDays.includes(day));
@@ -93,11 +110,9 @@ export default function Dashboard() {
           const savedState = JSON.parse(localStorage.getItem('psc_exam_state_dynamic') || 'null');
           setExamState(savedState);
         } else {
-          const taskSnap = await getDocs(collection(db, 'daily_tasks'));
-          if (!taskSnap.empty) {
-            const tasks = taskSnap.docs.map(doc => doc.data()).sort((a, b) => a.dayNumber - b.dayNumber);
+          if (tasks.length > 0) {
             const nextPendingTask = tasks.find(task => !storedCompleted.includes(task.dayNumber));
-            
+
             if (nextPendingTask) {
               setActiveMission(nextPendingTask);
             } else {
@@ -106,17 +121,16 @@ export default function Dashboard() {
             }
           }
         }
-      } catch (error) { console.error("Fetch Error:", error); } 
+      } catch (error) { console.error("Fetch Error:", error); }
       finally { setIsLoading(false); }
     };
     fetchData();
-  }, [isSunday]);
+  }, [isSunday, user]);
 
-  // 🚀 Pro Calendar Grid Generator with Multi-Slide & Exam Score Parsing
   const calendarData = useMemo(() => {
     const year = currentCalendarDate.getFullYear();
     const month = currentCalendarDate.getMonth();
-    const firstDayIndex = new Date(year, month, 1).getDay(); 
+    const firstDayIndex = new Date(year, month, 1).getDay();
     const totalDays = new Date(year, month + 1, 0).getDate();
 
     const days = [];
@@ -125,14 +139,23 @@ export default function Dashboard() {
     const startDate = new Date(startDateStr);
     const today = new Date();
 
+    let currentWeekSlideCount = 0; // Tracks slides completed from Mon-Sat
+
     for (let d = 1; d <= totalDays; d++) {
       const cellDate = new Date(year, month, d);
       const dateKey = cellDate.toISOString().split('T')[0];
       const isSun = cellDate.getDay() === 0;
+      const isMon = cellDate.getDay() === 1;
       const isToday = cellDate.toDateString() === today.toDateString();
       const isStartDay = cellDate.toDateString() === startDate.toDateString();
 
+      // Reset week slide count on Monday
+      if (isMon) currentWeekSlideCount = 0;
+
       let missionDayIndex = null;
+      const daysSinceStart = Math.floor((cellDate - startDate) / (1000 * 60 * 60 * 24));
+      const isMistakeReviewDay = daysSinceStart > 0 && daysSinceStart % 7 === 0; // Every 7 days
+
       if (cellDate >= new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()) && !isSun) {
         let count = 0;
         let cur = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
@@ -143,28 +166,19 @@ export default function Dashboard() {
         missionDayIndex = count;
       }
 
-      // Check multi-completions logged for this exact date
       const slidesCompletedToday = dayCompletionsMap[dateKey] || [];
       const isCompleted = (missionDayIndex && completedDays.includes(missionDayIndex)) || slidesCompletedToday.length > 0;
-      
-      // Check exams taken on this date
+
+      // Add today's slides to the weekly tracker (Mon-Sat only)
+      if (!isSun) currentWeekSlideCount += slidesCompletedToday.length;
+
       const examsTakenToday = examHistoryMap[dateKey] || [];
       const hasLiveEvent = liveExams.some(e => new Date(e.scheduledStartTime).toDateString() === cellDate.toDateString());
-      const hasRemembrance = isSun && cellDate <= today; 
 
-      days.push({ 
-        dayNumber: d, 
-        dateKey,
-        isSunday: isSun, 
-        isToday, 
-        isStartDay, 
-        missionDayIndex, 
-        isCompleted, 
-        slidesCount: slidesCompletedToday.length,
-        examsTaken: examsTakenToday,
-        hasLiveEvent, 
-        hasRemembrance, 
-        id: `day-${d}` 
+      days.push({
+        dayNumber: d, dateKey, isSunday: isSun, isToday, isStartDay, missionDayIndex,
+        isCompleted, slidesCount: slidesCompletedToday.length, examsTaken: examsTakenToday,
+        hasLiveEvent, isMistakeReviewDay, weekSlideCount: currentWeekSlideCount, id: `day-${d}`
       });
     }
     return { days, monthName: currentCalendarDate.toLocaleString('default', { month: 'long', year: 'numeric' }) };
@@ -173,16 +187,43 @@ export default function Dashboard() {
   const handlePrevMonth = () => setCurrentCalendarDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
   const handleNextMonth = () => setCurrentCalendarDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
 
+  const calculatedXP = (completedDays.length * 50) + (completedExamsCount * 150);
+  const currentLevel = Math.floor(calculatedXP / 1000) + 1;
+  const currentTierXP = calculatedXP % 1000;
+  const rankProgress = Math.min(100, Math.max(0, (currentTierXP / 1000) * 100));
+
+  let currentRankTitle = "Aspirant";
+  if (currentLevel >= 3) currentRankTitle = "Overseer Gr-III";
+  if (currentLevel >= 5) currentRankTitle = "Overseer Gr-II";
+  if (currentLevel >= 10) currentRankTitle = "Overseer Gr-I";
+  if (currentLevel >= 15) currentRankTitle = "Assistant Engineer";
+
+  const totalTargetModules = Math.max(1, Math.ceil(totalAvailableSlides / 6));
+  const currentModules = Math.floor(completedDays.length / 6);
+  const moduleProgressPercent = Math.min(100, (completedDays.length / totalAvailableSlides) * 100);
+
+  const getDailyQuote = () => {
+    const quotes = [
+      "Discipline today, Success tomorrow.",
+      "Small steps every day lead to big results.",
+      "Sweat more in practice, bleed less in war.",
+      "Focus on the process, the results will follow.",
+      "Consistency transforms average into excellence.",
+      "Push yourself, no one else will do it for you.",
+      "Your future is created by what you do today."
+    ];
+    return quotes[new Date().getDay()];
+  };
+
   return (
-    <div className="space-y-6 md:space-y-8 animate-in fade-in duration-700 max-w-7xl mx-auto pb-24 relative overflow-x-hidden">
-      
-      {/* FLOATING TOAST NOTIFICATION */}
+    <div className="animate-in fade-in duration-700 max-w-7xl mx-auto pb-24 relative overflow-x-hidden pt-4">
+
       {showToast && (
         <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-12 fade-in duration-700 max-w-sm w-full">
           <div className="bg-slate-900/95 backdrop-blur-xl border border-slate-700/50 p-5 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative overflow-hidden group">
             <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/10 rounded-full blur-3xl pointer-events-none"></div>
             <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-rose-500 to-brand-500"></div>
-            
+
             <div className="flex justify-between items-start mb-3 relative z-10">
               <div className="flex items-center gap-2 text-rose-400 font-black text-xs uppercase tracking-widest bg-rose-500/10 px-2.5 py-1 rounded-lg border border-rose-500/20">
                 <Radio size={14} className="animate-pulse" /> Action Required
@@ -191,7 +232,7 @@ export default function Dashboard() {
                 <X size={14} />
               </button>
             </div>
-            
+
             <div className="relative z-10">
               {liveExams.length > 0 && (
                 <div className="mb-3">
@@ -206,7 +247,7 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
-            
+
             <button onClick={() => navigate(liveExams.length > 0 ? '/arena' : '/mistakes')} className="w-full mt-2 py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-black uppercase tracking-widest rounded-xl transition border border-slate-700 relative z-10 active:scale-95">
               Engage Protocol
             </button>
@@ -214,333 +255,329 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 1. COMMAND CENTER BANNER */}
-      <div className="relative overflow-hidden bg-slate-900/40 backdrop-blur-3xl p-8 md:p-12 rounded-[3rem] border border-slate-700/50 shadow-[0_0_50px_rgba(0,0,0,0.3)]">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-brand-500/10 via-slate-900/20 to-transparent pointer-events-none"></div>
-        <div className="absolute -top-24 -right-24 w-96 h-96 bg-amber-500/10 rounded-full blur-[100px] pointer-events-none"></div>
-        
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8 relative z-10">
-          <div className="space-y-5 max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-950/80 text-brand-400 border border-slate-800 text-xs font-black tracking-widest uppercase shadow-inner">
-              <HardHat size={16} className="text-brand-500" /> Kerala PSC Technical Officer Track
-            </div>
-            <h2 className="text-5xl md:text-6xl font-black text-white tracking-tight leading-[1.1]">
-              Target: <br className="hidden md:block"/>
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-400 via-amber-200 to-brand-400 bg-[length:200%_auto] animate-[gradient_4s_linear_infinite] drop-shadow-sm">Assistant Engineer</span>
-            </h2>
+      {/* PRO HEADER SECTION */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mb-8 px-2">
+        <div>
+          <h1 className="text-4xl md:text-5xl font-black text-white mb-2 tracking-tight flex items-center gap-3">
+            {greeting}, {userName} <span className="animate-[wiggle_1s_ease-in-out_infinite] inline-block origin-bottom-right">👋</span>
+          </h1>
+          <p className="text-slate-400 text-sm md:text-base mb-4 font-medium">Good to see you back! Stay consistent, <br className="hidden md:block" />You're closer to your goal than you think.</p>
+          <div className="flex flex-wrap gap-2 text-[10px] md:text-xs font-black uppercase tracking-widest text-slate-500">
+            <span className="px-3 py-1 rounded-full border border-slate-700 bg-slate-900/50 shadow-inner text-brand-400">Civil Engineer (AE)</span>
+            <span className="px-3 py-1 rounded-full border border-slate-700 bg-slate-900/50 shadow-inner">RRB</span>
+            <span className="px-3 py-1 rounded-full border border-slate-700 bg-slate-900/50 shadow-inner">Kerala PSC</span>
           </div>
-
-          <div className="w-full lg:w-80 bg-slate-950/80 backdrop-blur-xl p-7 rounded-[2rem] border border-slate-700/50 space-y-5 shadow-2xl shrink-0 group hover:border-brand-500/40 transition-all duration-500 relative overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-br from-brand-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-            <div className="flex justify-between items-end relative z-10">
-              <div className="space-y-1.5">
-                <span className="text-slate-500 uppercase tracking-widest text-[10px] font-black">Current Rank Tier</span>
-                <div className="text-white font-black text-xl flex items-center gap-2"><Trophy size={18} className="text-amber-400"/> Overseer Gr-I</div>
-              </div>
-              <Activity className="text-brand-500/40 group-hover:text-brand-400 transition-colors" size={28} />
-            </div>
-            <div className="w-full bg-slate-900 rounded-full h-4 overflow-hidden p-1 border border-slate-800 shadow-inner relative z-10">
-              <div className="bg-gradient-to-r from-brand-600 via-brand-400 to-amber-300 h-full rounded-full shadow-[0_0_15px_rgba(245,158,11,0.6)] relative overflow-hidden" style={{ width: '72.5%' }}>
-                <div className="absolute inset-0 bg-white/30 w-full animate-[shimmer_2s_infinite] -skew-x-12"></div>
-              </div>
-            </div>
-            <div className="flex justify-between text-xs font-black uppercase tracking-widest relative z-10">
-              <span className="text-slate-400">Level 3</span>
-              <span className="text-brand-400">1,450 / 2k XP</span>
-            </div>
-          </div>
+        </div>
+        <div className="hidden lg:block text-right self-center bg-slate-900/40 px-6 py-4 rounded-2xl border border-slate-800 shadow-inner">
+          <p className="text-slate-400 font-serif italic text-lg leading-relaxed bg-clip-text text-transparent bg-gradient-to-r from-slate-200 to-slate-500">
+            "{getDailyQuote().split(',')[0]},<br />{getDailyQuote().split(',')[1] || ''}"
+          </p>
         </div>
       </div>
 
-      {/* 2. MAIN HUB (Action Card + Telemetry Grid) */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 md:gap-8">
-        
-        {/* Dynamic Action Card */}
-        <div className={`xl:col-span-2 p-1 rounded-[3rem] shadow-2xl relative overflow-hidden group ${isSunday ? 'bg-gradient-to-br from-rose-500/50 via-rose-900/20 to-slate-900' : 'bg-gradient-to-br from-brand-500/50 via-brand-900/20 to-slate-900'}`}>
-          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-2xl rounded-[2.9rem]"></div>
-          <div className="relative z-10 h-full p-8 md:p-12 flex flex-col justify-between">
-            {isSunday ? (
-              pendingTestDays.length > 0 ? (
-                <div className="flex flex-col h-full justify-between animate-in zoom-in-95 duration-500">
-                  <div className="flex items-start justify-between mb-8">
-                    <div className="space-y-3">
-                      <span className="px-4 py-2 rounded-xl bg-rose-500/10 text-rose-400 font-black text-xs uppercase tracking-widest border border-rose-500/20 shadow-inner flex items-center gap-2 w-fit">
-                        <ShieldAlert size={16}/> Sunday Protocol Active
-                      </span>
-                      <h3 className="font-black text-4xl md:text-5xl text-white tracking-tight">Mega-Mock Examination</h3>
-                    </div>
-                    <div className="w-20 h-20 bg-rose-950/80 text-rose-400 rounded-3xl flex items-center justify-center border border-rose-500/30 shadow-[0_0_40px_rgba(244,63,94,0.3)] hidden sm:flex shrink-0">
-                      <Trophy size={40} />
-                    </div>
-                  </div>
 
-                  <p className="text-slate-400 text-lg mb-8 max-w-xl leading-relaxed">Synthesizing comprehensive assessment covering {pendingTestDays.length} specific modules to finalize your weekly tactical conditioning.</p>
+        {/* ================= LEFT COLUMN ================= */}
+        <div className="xl:col-span-2 space-y-6 md:space-y-8">
 
-                  <button 
-                    onClick={() => navigate(`/exam/dynamic?days=${pendingTestDays.join(',')}`)} 
-                    className={`w-full py-6 font-black rounded-[2rem] shadow-2xl transition active:scale-95 flex items-center justify-center gap-3 text-xl uppercase tracking-widest ${
-                      examState?.isFinished ? 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-700' : 'bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 text-white shadow-[0_0_40px_rgba(225,29,72,0.4)]'
-                    }`}
+          {/* Daily Progress / Action Card */}
+          <div className="bg-slate-900/60 backdrop-blur-xl border border-slate-700/50 p-8 rounded-[2rem] shadow-xl relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-brand-500/10 rounded-full blur-[80px] pointer-events-none"></div>
+            <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-sky-500/10 rounded-full blur-[60px] pointer-events-none"></div>
+
+            <div className="relative z-10 flex flex-col h-full">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-2xl bg-brand-500/20 text-brand-400 flex items-center justify-center border border-brand-500/30">
+                  <Target size={24} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-1">Daily Progress</h3>
+                  <h2 className="text-3xl font-black text-white tracking-tight leading-none">Modules Mastered</h2>
+                </div>
+              </div>
+
+              <p className="text-slate-300 text-sm md:text-base font-medium mb-8">
+                Keep going! You're building the skills for your next big step. Every slide counts.
+              </p>
+
+              <div className="mb-6">
+                <div className="flex justify-between items-end mb-2 text-xs font-black uppercase tracking-widest text-slate-500">
+                  <span className="text-brand-400">{completedDays.length} / {totalAvailableSlides} SLIDES</span>
+                  <span>{Math.round(moduleProgressPercent)}%</span>
+                </div>
+                <div className="w-full bg-slate-950 rounded-full h-3 border border-slate-800 shadow-inner relative overflow-hidden">
+                  <div
+                    className="bg-brand-500 h-full rounded-full shadow-[0_0_15px_rgba(245,158,11,0.5)] transition-all duration-1000 relative"
+                    style={{ width: `${moduleProgressPercent}%` }}
                   >
-                    {examState?.isFinished ? <><RotateCcw size={24} /> Re-Attempt Practice</> : examState?.currentIndex > 0 ? <><Play size={24} /> Resume Combat</> : <><Zap size={24} /> Initiate Assessment</>}
-                  </button>
-                </div>
-              ) : (
-                <div className="text-center py-16 text-slate-400 flex flex-col items-center justify-center h-full">
-                  <ShieldAlert size={64} className="text-emerald-500/40 mb-6 drop-shadow-[0_0_30px_rgba(16,185,129,0.3)]" />
-                  <h3 className="font-black text-white mb-3 text-3xl">Standby Mode</h3>
-                  <p className="text-lg max-w-md mx-auto">All weekly missions cleared. Review your Mistake Log or await further deployment orders.</p>
-                </div>
-              )
-            ) : (
-              <div className="flex flex-col h-full justify-between">
-                <div className="flex items-start justify-between mb-8">
-                  <div className="space-y-3">
-                    <span className="px-4 py-2 rounded-xl bg-brand-500/10 text-brand-400 font-black text-xs uppercase tracking-widest border border-brand-500/20 shadow-inner flex items-center gap-2 w-fit">
-                      <Bolt size={16}/> Daily Protocol
-                    </span>
-                    <h3 className="font-black text-4xl md:text-5xl text-white tracking-tight">
-                      {isLoading ? "Syncing..." : isAllCaughtUp ? "Modules Mastered" : `Mission: Day ${activeMission?.dayNumber}`}
-                    </h3>
+                    <div className="absolute inset-0 bg-white/20 w-full animate-[shimmer_2s_infinite] -skew-x-12"></div>
                   </div>
-                  {activeMission && (
-                    <div className="w-16 h-16 bg-slate-900 text-brand-400 rounded-3xl flex items-center justify-center border border-slate-800 shadow-inner hidden sm:flex shrink-0">
-                      <span className="font-black text-2xl">{activeMission.dayNumber}</span>
-                    </div>
-                  )}
                 </div>
+              </div>
 
-                {!isLoading && !isAllCaughtUp && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-                    <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 flex items-center gap-5 hover:bg-slate-800 transition group">
-                      <div className="w-14 h-14 rounded-[1.2rem] bg-rose-500/10 text-rose-400 flex items-center justify-center shrink-0 border border-rose-500/20 group-hover:scale-110 transition-transform">
-                        <Target size={24} />
-                      </div>
-                      <div>
-                        <div className="text-xl font-black text-white mb-1">{activeMission?.curriculumData?.quizzes?.length || 0} MCQs</div>
-                        <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Combat Mode</span>
-                      </div>
-                    </div>
-                    <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 flex items-center gap-5 hover:bg-slate-800 transition group">
-                      <div className="w-14 h-14 rounded-[1.2rem] bg-sky-500/10 text-sky-400 flex items-center justify-center shrink-0 border border-sky-500/20 group-hover:scale-110 transition-transform">
-                        <Layers size={24} />
-                      </div>
-                      <div>
-                        <div className="text-xl font-black text-white mb-1">{activeMission?.curriculumData?.games?.flashcards?.length || 0} Cards</div>
-                        <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Active Recall</span>
-                      </div>
-                    </div>
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 mt-4">
+                <div className="flex flex-wrap items-center gap-4 md:gap-6 text-xs font-bold text-slate-400">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 size={16} className="text-emerald-500" />
+                    <span className="text-white">{completedDays.length}</span> Slides Completed
                   </div>
-                )}
-
-                <div className="mt-auto relative">
-                  {!isAllCaughtUp && (
-                    <div className="absolute -top-10 left-1/2 -translate-x-1/2 px-6 py-2 bg-slate-950 border border-slate-800 rounded-t-2xl text-[10px] font-black text-brand-400 uppercase tracking-widest shadow-inner truncate max-w-[90%]">
-                      {activeMission ? activeMission.title : 'Standby'}
-                    </div>
-                  )}
-                  <button 
-                    onClick={() => navigate('/daily')} 
-                    disabled={!activeMission} 
-                    className="w-full py-6 text-xl uppercase tracking-widest font-black rounded-[2rem] flex items-center justify-center gap-3 transition active:scale-95 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 text-white shadow-[0_0_40px_rgba(245,158,11,0.4)] disabled:opacity-50 disabled:shadow-none relative z-10"
-                  >
-                    {isAllCaughtUp ? "Review Past Missions" : <><Zap size={24} className={activeMission ? "animate-pulse" : ""} /> Launch Sequence</>}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <Activity size={16} className="text-sky-500" />
+                    <span className="text-white">{Math.max(0, totalAvailableSlides - completedDays.length)}</span> Slides Remaining
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* 2x2 Telemetry Grid */}
-        <div className="grid grid-cols-2 gap-4 md:gap-6 h-full">
-          {[
-            { icon: Flame, color: 'text-amber-500', glow: 'shadow-[0_0_20px_rgba(245,158,11,0.2)]', value: '5 Days', label: 'Streak' },
-            { icon: BookCheck, color: 'text-emerald-400', glow: 'shadow-[0_0_20px_rgba(16,185,129,0.2)]', value: completedDays.length, label: 'Syllabus' },
-            { icon: Swords, color: 'text-rose-400', glow: 'shadow-[0_0_20px_rgba(244,63,94,0.2)]', value: completedExamsCount, label: 'Battles' },
-            { icon: Bookmark, color: 'text-sky-400', glow: 'shadow-[0_0_20px_rgba(56,189,248,0.2)]', value: vaultItemsCount, label: 'Vault' }
-          ].map((kpi, idx) => (
-            <div key={idx} className="bg-slate-900/60 backdrop-blur-xl border border-slate-700/50 p-6 rounded-[2rem] flex flex-col justify-center items-center text-center shadow-lg hover:-translate-y-2 transition-all duration-500 group relative overflow-hidden">
-              <div className={`absolute top-0 right-0 w-24 h-24 rounded-full blur-2xl opacity-0 group-hover:opacity-10 transition-opacity bg-current ${kpi.color}`}></div>
-              <div className={`p-4 rounded-2xl bg-slate-950 border border-slate-800 mb-4 group-hover:scale-110 transition-transform ${kpi.color} ${kpi.glow}`}>
-                <kpi.icon size={28} />
-              </div>
-              <span className="block text-3xl font-black text-white tracking-tight leading-none mb-2">{kpi.value}</span>
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{kpi.label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* 3. PRO CALENDAR MATRIX & INTELLIGENCE */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
-        
-        {/* Pro Calendar Matrix with Multi-Slide & Exam Score Info */}
-        <div className="bg-slate-900/40 backdrop-blur-2xl border border-slate-700/50 p-6 md:p-10 rounded-[3rem] shadow-2xl lg:col-span-2 flex flex-col relative overflow-hidden">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-slate-800/80 pb-6 mb-8 relative z-10">
-            <div className="flex items-center gap-4">
-              <div className="p-4 bg-brand-500/10 text-brand-400 rounded-2xl border border-brand-500/20 shadow-inner">
-                <CalendarIcon size={28} />
-              </div>
-              <div>
-                <h3 className="text-3xl font-black text-white tracking-tight">Deployment Matrix</h3>
-                <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-widest">
-                  Tactical Timeline, Multi-Slide & Exam Telemetry
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
-              <span className="text-sm font-black text-white bg-slate-950/80 border border-slate-700 px-5 py-2.5 rounded-xl shadow-inner uppercase tracking-widest">
-                {calendarData.monthName}
-              </span>
-              <div className="flex items-center gap-1 bg-slate-950/80 border border-slate-700 rounded-xl p-1 shadow-inner">
-                <button onClick={handlePrevMonth} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"><ChevronLeft size={20} /></button>
-                <button onClick={handleNextMonth} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"><ChevronRight size={20} /></button>
+                <button
+                  onClick={() => navigate(isSunday ? '/arena' : '/daily')}
+                  className="w-full sm:w-auto px-8 py-4 bg-brand-500 hover:bg-brand-400 text-slate-950 font-black rounded-xl transition shadow-[0_0_20px_rgba(245,158,11,0.3)] active:scale-95 flex items-center justify-center gap-2"
+                >
+                  Continue Learning <ChevronRight size={18} strokeWidth={3} />
+                </button>
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-7 gap-2 md:gap-4 text-center flex-1 relative z-10">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dName, idx) => (
-              <div key={dName} className={`text-[10px] md:text-xs font-black uppercase tracking-widest py-2 ${idx === 0 ? 'text-rose-400' : 'text-slate-500'}`}>
-                {dName}
+          {/* Pro Calendar Matrix (Notification & Multi-Slide Rich) */}
+          <div className="bg-slate-900/60 backdrop-blur-2xl border border-slate-700/50 p-6 md:p-8 rounded-[2rem] shadow-xl flex flex-col relative overflow-hidden">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-slate-800/80 pb-6 mb-6 relative z-10">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-slate-800 text-brand-400 rounded-xl border border-slate-700 shadow-inner">
+                  <CalendarIcon size={24} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-white tracking-tight">Deployment Matrix</h3>
+                  <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">
+                    Operational Intelligence & Telemetry
+                  </p>
+                </div>
               </div>
-            ))}
 
-            {calendarData.days.map((d) => {
+              <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+                <span className="text-xs font-black text-white bg-slate-950/80 border border-slate-700 px-4 py-2 rounded-lg shadow-inner uppercase tracking-widest">
+                  {calendarData.monthName}
+                </span>
+                <div className="flex items-center gap-1 bg-slate-950/80 border border-slate-700 rounded-lg p-1 shadow-inner">
+                  <button onClick={handlePrevMonth} className="p-1 hover:bg-slate-800 rounded md text-slate-400 hover:text-white transition-colors"><ChevronLeft size={18} /></button>
+                  <button onClick={handleNextMonth} className="p-1 hover:bg-slate-800 rounded md text-slate-400 hover:text-white transition-colors"><ChevronRight size={18} /></button>
+                </div>
+              </div>
+            </div>
+
+            {/* Calendar Legend */}
+            <div className="flex flex-wrap gap-4 mb-4 text-[10px] font-black uppercase tracking-widest text-slate-500 justify-center">
+              <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Multi-Slide</div>
+              <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-500"></div> Mock Status</div>
+              <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-amber-500"></div> Error Review</div>
+            </div>
+
+            <div className="grid grid-cols-7 gap-2 text-center flex-1 relative z-10">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dName, idx) => (
+                <div key={dName} className={`text-[9px] md:text-[10px] font-black uppercase tracking-widest py-2 ${idx === 0 ? 'text-rose-400' : 'text-slate-500'}`}>
+                  {dName}
+                </div>
+              ))}
+
+              {calendarData.days.map((d) => {
               if (d.empty) return <div key={d.id} className="aspect-square"></div>;
               const isFuture = !d.isCompleted && !d.isToday && !d.isStartDay && !d.isSunday && new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth(), d.dayNumber) > new Date();
+
+              // 🚀 NEW: Dynamic Tooltip Logic
+              let tooltipText = "";
+              if (d.isStartDay) tooltipText = "🚀 Mission Started!";
+              else if (d.isSunday) {
+                if (d.weekSlideCount >= 6) tooltipText = "✅ Weekly Mock Unlocked!";
+                else tooltipText = `🔒 Locked: Need ${6 - d.weekSlideCount} more slides this week`;
+              }
+              else if (d.hasLiveEvent) tooltipText = "🔴 Live Combat Arena Active!";
+              else if (d.isMistakeReviewDay) tooltipText = "⚠️ 7-Day Mistake Review Due";
+              else if (d.slidesCount > 0) tooltipText = `🔥 Crushed ${d.slidesCount} slides!`;
+              else if (isFuture) tooltipText = "Awaiting Deployment";
+              else tooltipText = "Standby / No Activity";
 
               return (
                 <div 
                   key={d.id} 
-                  className={`aspect-square p-2 md:p-2.5 rounded-2xl md:rounded-3xl border transition-all duration-300 flex flex-col justify-between text-left relative overflow-hidden group hover:-translate-y-1 hover:shadow-2xl ${
-                    d.isToday ? 'border-sky-400/80 bg-sky-950/30 shadow-[0_0_30px_rgba(56,189,248,0.2)]' :
-                    d.isStartDay ? 'border-brand-500/80 bg-brand-950/40 shadow-[0_0_20px_rgba(245,158,11,0.2)]' :
+                  className={`aspect-square p-2 md:p-3 rounded-xl md:rounded-2xl border transition-all duration-300 flex flex-col text-left relative group hover:shadow-lg ${
+                    d.isToday ? 'border-brand-500/80 bg-brand-950/30' :
                     d.isSunday ? 'border-rose-900/50 bg-rose-950/10' :
-                    d.isCompleted ? 'border-emerald-500/40 bg-emerald-950/20' :
-                    isFuture ? 'border-slate-800/30 bg-slate-900/10 opacity-40' :
-                    'border-slate-700/50 bg-slate-900/40'
+                    d.isCompleted ? 'border-slate-700 bg-slate-800' :
+                    isFuture ? 'border-transparent bg-transparent opacity-40' :
+                    'border-slate-800 bg-slate-900/50'
                   }`}
                 >
-                  <div className="flex justify-between items-start relative z-10">
-                    <span className={`text-sm md:text-lg font-black ${
-                      d.isToday ? 'text-sky-300 drop-shadow-[0_0_8px_rgba(56,189,248,0.8)]' : 
-                      d.isStartDay ? 'text-brand-400' : 
+                  {/* 🚀 NEW: The Floating Hover Tooltip */}
+                  <div className="absolute z-50 bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-700 text-slate-200 text-[10px] font-bold p-2.5 rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none shadow-[0_10px_30px_rgba(0,0,0,0.5)] w-max max-w-[140px] text-center leading-tight scale-95 group-hover:scale-100 hidden md:block">
+                    {tooltipText}
+                    {/* Triangle Pointer */}
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-slate-700"></div>
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-transparent border-t-slate-900 -mt-[1px]"></div>
+                  </div>
+
+                  <div className="flex justify-between items-start relative z-10 w-full mb-1">
+                    <span className={`text-sm md:text-base font-black ${
+                      d.isToday ? 'text-brand-400' : 
                       d.isSunday ? 'text-rose-400' : 
                       d.isCompleted ? 'text-white' : 'text-slate-400'
                     }`}>
                       {d.dayNumber}
                     </span>
-                    {d.isCompleted && !d.isStartDay && (
-                      <span className="text-emerald-400 bg-emerald-950/80 p-1 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.4)]">
-                        <Check size={10} strokeWidth={4} />
-                      </span>
+
+                    {/* 🚀 EXACT SLIDE TICKS: Shows individual ticks for each slide crushed that day */}
+                    {d.slidesCount > 0 && !d.isStartDay && (
+                      <div className="absolute top-0 right-0 flex gap-0.5">
+                        {Array.from({ length: Math.min(d.slidesCount, 3) }).map((_, i) => (
+                          <span key={i} className="text-emerald-400 bg-emerald-950/90 p-[3px] rounded-full shadow-sm border border-emerald-500/30">
+                            <Check size={8} strokeWidth={4} />
+                          </span>
+                        ))}
+                        {d.slidesCount > 3 && <span className="text-[9px] font-black text-emerald-400 ml-0.5 pt-0.5">+{d.slidesCount - 3}</span>}
+                      </div>
                     )}
                   </div>
 
-                  {/* 🚀 Pro Telemetry Inside Cell: Multi-Slide & Exam Scores */}
-                  <div className="mt-auto relative z-10 flex flex-col gap-0.5">
-                    {d.isStartDay ? (
-                      <div className="text-[9px] font-black uppercase tracking-widest text-brand-400 leading-tight">Start</div>
-                    ) : d.isSunday ? (
-                      <div className="text-[9px] font-black uppercase tracking-widest text-rose-500/80 leading-tight truncate">Mock</div>
-                    ) : d.slidesCount > 1 ? (
-                      <div className="text-[9px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-950/60 px-1 rounded truncate" title={`${d.slidesCount} slides crushed today!`}>
-                        +{d.slidesCount} Slides
-                      </div>
-                    ) : d.missionDayIndex ? (
-                      <div className={`text-[9px] font-black uppercase tracking-widest truncate ${d.isCompleted ? 'text-emerald-400' : 'text-slate-600'}`}>
-                        Day {d.missionDayIndex}
-                      </div>
-                    ) : (
-                      <div className="h-3"></div>
+                  <div className="mt-auto relative z-10 flex flex-col gap-1 w-full">
+                    
+                    {/* Sunday Strict Requirement Notification */}
+                    {d.isSunday && (
+                      d.weekSlideCount >= 6 ? (
+                        <div className="text-[7px] md:text-[8px] font-black uppercase tracking-widest text-rose-300 bg-rose-950/60 px-1 py-0.5 rounded flex items-center gap-1 border border-rose-500/30">
+                          <Zap size={8} className="shrink-0"/> Mock Ready
+                        </div>
+                      ) : (
+                        <div className="text-[7px] md:text-[8px] font-black uppercase tracking-widest text-slate-500 bg-slate-950 px-1 py-0.5 rounded flex items-center gap-1 border border-slate-800">
+                          <Lock size={8} className="shrink-0"/> Locked
+                        </div>
+                      )
                     )}
 
-                    {/* Show Exam Score Badge if an exam was taken on this date */}
+                    {/* 7-Day Mistake Log Reminder */}
+                    {d.isMistakeReviewDay && (
+                      <div className="text-[7px] md:text-[8px] font-black uppercase tracking-widest text-amber-400 bg-amber-950/60 px-1 py-0.5 rounded flex items-center gap-1 border border-amber-500/30">
+                        <History size={8} className="shrink-0"/> Log Review
+                      </div>
+                    )}
+
+                    {/* Exam Score Overlay */}
                     {d.examsTaken.length > 0 && (
-                      <div className="text-[8px] font-black bg-brand-500/20 border border-brand-500/40 text-brand-300 px-1 rounded truncate flex items-center gap-0.5">
-                        <TrendingUp size={8} /> {d.examsTaken[0].score}/{d.examsTaken[0].total}
+                      <div className="text-[8px] font-black bg-slate-900 border border-brand-500/40 text-brand-400 px-1 py-0.5 rounded truncate flex items-center gap-1">
+                        <Swords size={8} /> {d.examsTaken[0].score}/{d.examsTaken[0].total}
                       </div>
                     )}
                   </div>
                 </div>
               );
             })}
+            </div>
           </div>
         </div>
 
-        {/* Global Notifications Sidebar */}
-        <div className="bg-slate-900/40 backdrop-blur-2xl border border-slate-700/50 p-6 md:p-8 rounded-[3rem] shadow-2xl flex flex-col gap-6 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-full h-1.5 bg-gradient-to-r from-rose-500 via-brand-500 to-sky-500"></div>
-          
-          <div className="flex items-center gap-3 border-b border-slate-800/80 pb-5">
-            <div className="p-3 bg-slate-800 rounded-xl"><BellRing size={20} className="text-white" /></div>
-            <h3 className="font-black text-white text-xl uppercase tracking-widest">Intelligence</h3>
-          </div>
+        {/* ================= RIGHT COLUMN ================= */}
+        <div className="space-y-6 md:space-y-8">
 
-          <div className="space-y-4 overflow-y-auto custom-scrollbar flex-1 pr-2">
-            
-            {liveExams.length > 0 && (
-              <div className="p-5 rounded-[1.5rem] bg-rose-950/20 border border-rose-900/50 relative overflow-hidden group hover:border-rose-500/50 transition-colors cursor-pointer shadow-lg" onClick={() => navigate('/arena')}>
-                <div className="absolute top-0 right-0 w-24 h-24 bg-rose-500/10 rounded-full blur-2xl group-hover:bg-rose-500/20 transition"></div>
-                <div className="flex items-start gap-4 relative z-10">
-                  <div className="p-3 bg-rose-500/20 rounded-xl text-rose-400 shrink-0 shadow-[0_0_15px_rgba(225,29,72,0.4)] animate-pulse"><Radio size={20}/></div>
-                  <div>
-                    <h4 className="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-1">Live Deployment</h4>
-                    <p className="text-base font-black text-white mb-1 leading-tight">{liveExams.length} Combat {liveExams.length === 1 ? 'Arena' : 'Arenas'} Active</p>
-                    <p className="text-xs font-bold text-slate-400">Engage immediate operations.</p>
-                  </div>
+          {/* Dynamic Ranking & XP Card */}
+          <div className="bg-slate-900/60 backdrop-blur-xl border border-slate-700/50 p-6 rounded-[2rem] shadow-xl relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 rounded-full blur-[40px] pointer-events-none"></div>
+
+            <div className="flex justify-between items-end relative z-10 mb-4">
+              <div className="space-y-1.5">
+                <span className="text-slate-500 uppercase tracking-widest text-[10px] font-black">Current Rank Tier</span>
+                <div className="text-white font-black text-lg flex items-center gap-2">
+                  <Trophy size={16} className="text-amber-400" /> {currentRankTitle}
                 </div>
               </div>
-            )}
-
-            {pendingMistakesCount > 0 && (
-              <div className="p-5 rounded-[1.5rem] bg-amber-950/20 border border-amber-900/50 relative overflow-hidden group hover:border-amber-500/50 transition-colors cursor-pointer shadow-lg" onClick={() => navigate('/mistakes')}>
-                <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 rounded-full blur-2xl group-hover:bg-amber-500/20 transition"></div>
-                <div className="flex items-start gap-4 relative z-10">
-                  <div className="p-3 bg-amber-500/20 rounded-xl text-amber-400 shrink-0 shadow-[0_0_15px_rgba(245,158,11,0.2)]"><History size={20}/></div>
-                  <div>
-                    <h4 className="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-1">Remembrance Review</h4>
-                    <p className="text-base font-black text-white mb-1 leading-tight">{pendingMistakesCount} Tactical Errors Logged</p>
-                    <p className="text-xs font-bold text-slate-400">Spaced repetition requires input.</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="p-5 rounded-[1.5rem] bg-slate-950/80 border border-slate-800 relative overflow-hidden group hover:border-brand-500/50 transition-colors shadow-lg">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-brand-500/5 rounded-full blur-2xl group-hover:bg-brand-500/10 transition"></div>
-              <div className="flex items-start gap-4 relative z-10">
-                <div className="p-3 bg-slate-900 border border-slate-700 rounded-xl text-brand-400 shrink-0"><AlertOctagon size={20}/></div>
-                <div>
-                  <h4 className="text-[10px] font-black text-brand-400 uppercase tracking-widest mb-1">Weekly Mega-Mock</h4>
-                  {isSunday ? (
-                    <>
-                      <p className="text-base font-black text-white mb-1 leading-tight">Authorization Granted</p>
-                      <p className="text-xs font-bold text-slate-400">Testing {pendingTestDays.length} Modules</p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-base font-black text-white mb-1 leading-tight">Pending Standby</p>
-                      <p className="text-xs font-bold text-slate-400">Deploying strictly on Sunday.</p>
-                    </>
-                  )}
-                </div>
+              <div className="w-10 h-10 rounded-full bg-slate-800 border-2 border-brand-500/40 flex items-center justify-center font-bold text-sm text-white shadow-inner">
+                {currentLevel}
               </div>
             </div>
 
-            {liveExams.length === 0 && pendingMistakesCount === 0 && !isSunday && (
-              <div className="text-center p-8 bg-slate-950/80 border border-slate-800 rounded-[1.5rem] shadow-inner">
-                <Check size={32} className="text-emerald-500 mx-auto mb-3 drop-shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
-                <p className="text-xs font-black text-slate-400 uppercase tracking-widest">All Clear</p>
-              </div>
-            )}
+            <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800 shadow-inner relative z-10 mb-3">
+              <div className="bg-gradient-to-r from-brand-600 to-amber-300 h-full rounded-full shadow-[0_0_15px_rgba(245,158,11,0.6)]" style={{ width: `${rankProgress}%` }}></div>
+            </div>
+
+            <div className="flex justify-between text-[10px] font-black uppercase tracking-widest relative z-10">
+              <span className="text-slate-500">Level {currentLevel}</span>
+              <span className="text-brand-400">{currentTierXP} / 1000 XP</span>
+            </div>
           </div>
+
+          {/* 2x2 KPI Grid */}
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              { icon: Flame, color: 'text-amber-500', bg: 'bg-slate-900', border: 'border-l-amber-500', value: '5 Days', label: 'Streak' },
+              { icon: BookCheck, color: 'text-sky-500', bg: 'bg-slate-900', border: 'border-l-sky-500', value: completedDays.length, label: 'Syllabus' },
+              { icon: Swords, color: 'text-rose-500', bg: 'bg-slate-900', border: 'border-l-rose-500', value: completedExamsCount, label: 'Battles' },
+              { icon: Bookmark, color: 'text-emerald-500', bg: 'bg-slate-900', border: 'border-l-emerald-500', value: vaultItemsCount, label: 'Vault' }
+            ].map((kpi, idx) => (
+              <div key={idx} className={`${kpi.bg} border border-slate-800 ${kpi.border} border-l-4 p-5 rounded-2xl flex flex-col justify-center items-start shadow-md hover:-translate-y-1 transition-transform group cursor-default`}>
+                <div className="flex items-center justify-between w-full mb-3">
+                  <div className={`p-2 rounded-xl bg-slate-950 shadow-inner ${kpi.color}`}>
+                    <kpi.icon size={20} />
+                  </div>
+                  <ChevronRight size={14} className="text-slate-600 group-hover:text-slate-400 transition" />
+                </div>
+                <span className="block text-2xl font-black text-white tracking-tight mb-1">{kpi.value}</span>
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{kpi.label}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Upcoming Missions (Notifications) */}
+          <div className="bg-slate-900/60 backdrop-blur-2xl border border-slate-700/50 p-6 rounded-[2rem] shadow-xl flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
+              <h3 className="font-black text-white text-base uppercase tracking-widest flex items-center gap-2">
+                <Layers size={18} className="text-slate-400" /> Upcoming Missions
+              </h3>
+            </div>
+
+            <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
+              {liveExams.length > 0 && (
+                <div className="p-4 rounded-xl bg-rose-950/20 border border-rose-900/50 cursor-pointer hover:border-rose-500/50 transition-colors shadow-md flex justify-between items-center group" onClick={() => navigate('/arena')}>
+                  <div className="flex items-center gap-4">
+                    <div className="p-2.5 bg-rose-500/20 rounded-lg text-rose-400 shrink-0 group-hover:scale-110 transition"><Swords size={18} /></div>
+                    <div>
+                      <h4 className="text-[9px] font-black text-rose-400 uppercase tracking-widest mb-0.5">Live Challenge</h4>
+                      <p className="text-sm font-bold text-white leading-tight">{liveExams.length} Combat Arenas Active</p>
+                    </div>
+                  </div>
+                  <ChevronRight size={16} className="text-rose-500/50" />
+                </div>
+              )}
+
+              {pendingMistakesCount > 0 && (
+                <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-900/50 cursor-pointer hover:border-amber-500/50 transition-colors shadow-md flex justify-between items-center group" onClick={() => navigate('/mistakes')}>
+                  <div className="flex items-center gap-4">
+                    <div className="p-2.5 bg-amber-500/20 rounded-lg text-amber-400 shrink-0 group-hover:scale-110 transition"><Trophy size={18} /></div>
+                    <div>
+                      <h4 className="text-[9px] font-black text-amber-400 uppercase tracking-widest mb-0.5">Performance Alert</h4>
+                      <p className="text-sm font-bold text-white leading-tight">{pendingMistakesCount} Tactical Errors Logged</p>
+                    </div>
+                  </div>
+                  <ChevronRight size={16} className="text-amber-500/50" />
+                </div>
+              )}
+
+              <div className="p-4 rounded-xl bg-sky-950/20 border border-sky-900/50 shadow-md flex justify-between items-center">
+                <div className="flex items-center gap-4">
+                  <div className="p-2.5 bg-sky-500/20 rounded-lg text-sky-400 shrink-0"><CalendarIcon size={18} /></div>
+                  <div>
+                    <h4 className="text-[9px] font-black text-sky-400 uppercase tracking-widest mb-0.5">Weekly Mock Exam</h4>
+                    <p className="text-sm font-bold text-white leading-tight">{isSunday ? 'Deploying Today' : 'Pending Standby'}</p>
+                  </div>
+                </div>
+                <ChevronRight size={16} className="text-sky-500/50" />
+              </div>
+
+              {liveExams.length === 0 && pendingMistakesCount === 0 && !isSunday && (
+                <div className="text-center p-6 bg-slate-950/80 border border-slate-800 rounded-xl">
+                  <Check size={24} className="text-emerald-500 mx-auto mb-2 opacity-50" />
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">All Clear</p>
+                </div>
+              )}
+            </div>
+          </div>
+
         </div>
       </div>
-
     </div>
   );
 }

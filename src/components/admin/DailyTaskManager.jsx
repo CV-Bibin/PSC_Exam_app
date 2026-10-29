@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../services/firebase';
-import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { extractSyllabusData, extractTextFromPPTX } from '../../services/gemini';
 import { 
   Plus, Upload, Calendar, Sparkles, FileText, UploadCloud, 
   ClipboardPaste, FileUp, BookOpen, Target, Gamepad2, Eye, X, AlertTriangle, CheckCircle2,
-  Image as ImageIcon, Code // Added Code icon for JSON field
+  Image as ImageIcon, Code, Edit3 
 } from 'lucide-react';
 
 export default function DailyTaskManager({ selectedCourse, selectedModule, setStatusMessage, globalNextDay }) {
@@ -28,7 +28,12 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
   // State for the Preview Modal
   const [previewTask, setPreviewTask] = useState(null);
 
-  // --- NEW: SPECIAL QUIZ JSON STATE ---
+  // 🚀 NEW: State for Quick Edit Modal
+  const [editingTask, setEditingTask] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDayNumber, setEditDayNumber] = useState('');
+
+  // --- SPECIAL QUIZ JSON STATE ---
   const [manualQuizJson, setManualQuizJson] = useState('');
   const [jsonStatus, setJsonStatus] = useState(null);
 
@@ -149,7 +154,6 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
     await handleAIProcessing(pastedTextContent, true);
   };
 
-  // 🚀 NEW: Validate JSON Function
   const handleValidateJson = () => {
     if (!manualQuizJson.trim()) {
       setJsonStatus({ error: true, msg: 'JSON field is empty.' });
@@ -185,12 +189,11 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
         });
       }
 
-      // 🚀 INJECT SEPARATE SPECIAL QUIZZES
       if (manualQuizJson.trim()) {
         try {
           const parsedJson = JSON.parse(manualQuizJson);
           if (!Array.isArray(parsedJson)) throw new Error("JSON must be an array.");
-          finalPayload.special_quizzes = parsedJson; // Saved separately so it doesn't overwrite standard quizzes
+          finalPayload.special_quizzes = parsedJson;
         } catch (err) {
           setStatusMessage(`❌ Special Quiz JSON Error: ${err.message}`);
           setLoading(false);
@@ -219,6 +222,36 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
       setStatusMessage('Error adding task: ' + err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 🚀 NEW: Quick Edit Methods
+  const openEditModal = (task) => {
+    setEditingTask(task);
+    setEditTitle(task.title || '');
+    setEditDayNumber(task.dayNumber || '');
+  };
+
+  const handleUpdateTaskInfo = async (e) => {
+    e.preventDefault();
+    if (!editTitle.trim() || !editDayNumber) return;
+
+    try {
+      setStatusMessage('Updating syllabus info...');
+      const taskRef = doc(db, 'daily_tasks', editingTask.id);
+      
+      await updateDoc(taskRef, {
+        title: editTitle.trim(),
+        dayNumber: Number(editDayNumber)
+      });
+
+      setStatusMessage('✅ Curriculum info updated successfully!');
+      setEditingTask(null);
+      
+      // Instantly refetch so the list reorders properly if the day number changed
+      fetchDayTasks(selectedCourse.courseId, selectedModule.moduleNumber);
+    } catch (error) {
+      setStatusMessage(`❌ Error updating task: ${error.message}`);
     }
   };
 
@@ -399,7 +432,6 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
           </div>
         )}
 
-        {/* 🚀 NEW: SPECIAL QUIZ JSON INJECTION */}
         <div className="bg-slate-900/50 border border-slate-700 p-4 rounded-xl space-y-3">
           <h4 className="text-sm font-bold text-sky-400 flex items-center gap-2">
             <Code size={16} /> Optional: Special Detailed Quizzes (JSON)
@@ -469,20 +501,79 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
                   )}
                 </div>
                 
-                {t.curriculumData && (
+                {/* 🚀 NEW: Edit & View Button Group */}
+                <div className="flex items-center gap-2 shrink-0">
                   <button 
-                    onClick={() => setPreviewTask(t)}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-brand-300 font-bold text-[10px] rounded-lg border border-slate-700 flex items-center gap-1.5 transition"
+                    onClick={() => openEditModal(t)}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-sky-400 font-bold text-[10px] rounded-lg border border-slate-700 flex items-center gap-1.5 transition"
                   >
-                    <Eye size={12} /> View Curriculum
+                    <Edit3 size={12} /> Edit Info
                   </button>
-                )}
+                  
+                  {t.curriculumData && (
+                    <button 
+                      onClick={() => setPreviewTask(t)}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-brand-300 font-bold text-[10px] rounded-lg border border-slate-700 flex items-center gap-1.5 transition"
+                    >
+                      <Eye size={12} /> View Curriculum
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
 
+      {/* 🚀 NEW: QUICK EDIT MODAL */}
+      {editingTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-civil-card border border-civil-border rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
+            <h3 className="text-lg font-black text-white mb-4">Edit Curriculum Info</h3>
+            
+            <form onSubmit={handleUpdateTaskInfo} className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-400 block mb-1">Day Number</label>
+                <input 
+                  type="number" 
+                  value={editDayNumber} 
+                  onChange={(e) => setEditDayNumber(e.target.value)} 
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-brand-500" 
+                  required 
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-400 block mb-1">Syllabus Title</label>
+                <input 
+                  type="text" 
+                  value={editTitle} 
+                  onChange={(e) => setEditTitle(e.target.value)} 
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-brand-500" 
+                  required 
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button 
+                  type="button" 
+                  onClick={() => setEditingTask(null)}
+                  className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-white text-sm font-bold rounded-xl transition"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="flex-1 py-3 bg-brand-500 hover:bg-brand-400 text-slate-950 text-sm font-black rounded-xl shadow transition"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EXISTING PREVIEW MODAL */}
       {previewTask && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="bg-civil-card border border-civil-border rounded-2xl w-full max-w-4xl h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
@@ -511,20 +602,17 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
                   {previewTask.curriculumData?.study_material?.map((mat, i) => (
                     <div key={i} className="bg-slate-900 flex flex-col rounded-xl border border-slate-700 overflow-hidden shadow-lg hover:border-brand-500 transition-colors group">
                       
-                      {/* Slide Header */}
                       <div className="bg-slate-950 px-3 py-2 border-b border-slate-800 flex justify-between items-center">
                         <span className="text-[10px] font-black text-brand-400 uppercase tracking-widest">Slide {i + 1}</span>
                         <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">{mat.type || 'Content'}</span>
                       </div>
                       
-                      {/* Slide Image (If attached) */}
                       {mat.image_url && (
                         <div className="w-full h-24 bg-slate-800 border-b border-slate-700 relative overflow-hidden">
                           <img src={mat.image_url} alt="Slide visual" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                         </div>
                       )}
                       
-                      {/* Slide Body */}
                       <div className="p-4 flex-1 flex flex-col bg-slate-900/50">
                         <h5 className="font-bold text-white text-sm mb-2 line-clamp-2 leading-tight">{mat.heading}</h5>
                         <div className="text-[10px] text-slate-400 whitespace-pre-wrap line-clamp-6 flex-1 leading-relaxed">
@@ -558,7 +646,6 @@ export default function DailyTaskManager({ selectedCourse, selectedModule, setSt
                 </div>
               </section>
 
-              {/* 🚀 NEW: SPECIAL QUIZ PREVIEW SECTION */}
               {previewTask.curriculumData?.special_quizzes && previewTask.curriculumData.special_quizzes.length > 0 && (
                 <section className="space-y-3">
                   <h4 className="text-sm font-bold text-amber-400 flex items-center gap-2 border-b border-slate-800 pb-2">
