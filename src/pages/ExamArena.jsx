@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../services/firebase';
+import { useAuth } from '../context/AuthContext';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import {
   Swords, Trophy, Target, Clock, BrainCircuit, Play,
@@ -12,6 +13,9 @@ import {
 // ==========================================
 export default function ExamArena() {
   const navigate = useNavigate();
+
+  // 🚀 PULL CLOUD DATA FROM FIREBASE
+  const { completedDays, globalScores, completedExams } = useAuth();
 
   // Database States
   const [dailyTasks, setDailyTasks] = useState([]);
