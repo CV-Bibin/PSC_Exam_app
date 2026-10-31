@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { db } from '../../services/firebase';
 import { collection, getDocs, doc, deleteDoc, updateDoc, query, orderBy, writeBatch } from 'firebase/firestore';
 import { Database, Users, Trash2, Edit3, AlertTriangle, X, Target, Save, Clock, BarChart3, Search, Award, Settings, BookOpen, ShieldAlert, Radio, Eye, EyeOff, Image as ImageIcon } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export default function AdminDataManager() {
   const [activeTab, setActiveTab] = useState('tasks');
@@ -95,7 +96,7 @@ export default function AdminDataManager() {
           await deleteDoc(doc(db, collectionName, id));
           fetchData(); 
         } catch (error) {
-          alert("Error deleting: " + error.message);
+          toast.error("Error deleting: " + error.message);
         }
       }
     });
@@ -114,9 +115,9 @@ export default function AdminDataManager() {
           snap.docs.forEach(d => batch.delete(d.ref));
           await batch.commit();
           fetchData();
-          alert(`Successfully purged ${collectionName}.`);
+        toast.success(`Successfully purged ${collectionName}.`);
         } catch (error) {
-          alert("Error executing purge: " + error.message);
+          toast.error("Error executing purge: " + error.message);
         }
       }
     });
@@ -149,7 +150,7 @@ export default function AdminDataManager() {
     setEditModal({ ...editModal, item: updatedItem });
   };
 
-  const handleSaveEdits = async () => {
+const handleSaveEdits = async () => {
     setSaveStatus('Saving...');
     try {
       const docRef = doc(db, editModal.collectionName, editModal.item.id);
@@ -160,14 +161,15 @@ export default function AdminDataManager() {
         await updateDoc(docRef, { questions: editModal.item.questions });
       }
       
-      setSaveStatus('✅ Changes Saved!');
+      setSaveStatus(''); // Clear the status text
+      toast.success('Changes Saved Successfully!'); // 🚀 Use toast for success
       fetchData();
-      setTimeout(() => setEditModal({ isOpen: false, item: null, collectionName: '' }), 1500);
+      setTimeout(() => setEditModal({ isOpen: false, item: null, collectionName: '' }), 500);
     } catch (error) {
-      setSaveStatus('❌ Error saving: ' + error.message);
+      setSaveStatus(''); // Clear the status text
+      toast.error('Error saving: ' + error.message); // 🚀 Use toast for error
     }
   };
-
   const filteredStudents = studentStats.filter(s => s.email.toLowerCase().includes(searchQuery.toLowerCase()));
 
   const formatLastActive = (timestamp) => {

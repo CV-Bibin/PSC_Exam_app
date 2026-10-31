@@ -6,6 +6,8 @@ import CBTExamLayout from './CBTExamLayout';
 import { auth, db } from '../services/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
+import toast from 'react-hot-toast';
+
 
 export default function GameEngine({ gameType, curriculumData, onExit, onMarkComplete, isExamMode = false, forceReviewMode = false, examId = 'default', dayNumber }) {
   const navigate = useNavigate();
@@ -102,13 +104,16 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
     return savedQs.some(item => item.question === (q.question || q.statement));
   };
 
-  const handleSaveQuestion = (q) => {
+ const handleSaveQuestion = (q) => {
     const savedQs = profile?.favQuestions || [];
 
     if (!isQuestionSaved(q)) {
       const newSaved = { id: Date.now().toString(), ...q };
-      // 🚀 Writes to Firebase (UI will instantly update based on the helper above)
+      // 🚀 Writes to Firebase
       updateCloudProgress({ favQuestions: [newSaved, ...savedQs] });
+      toast.success("Question saved to your Vault!"); // 🚀 Replaced alert with toast
+    } else {
+      toast.error("Already saved in Vault!"); // 🚀 Replaced alert with toast
     }
   };
 

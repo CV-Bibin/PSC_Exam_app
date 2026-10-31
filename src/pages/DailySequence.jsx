@@ -5,6 +5,7 @@ import { Target, Layers, ShieldAlert, Gamepad2, Play, BookOpen, ArrowLeft, Bolt,
 import LearningEngine from '../components/LearningEngine'; 
 import GameEngine from '../components/GameEngine'; 
 import { useAuth } from '../context/AuthContext';
+import toast from 'react-hot-toast';
 
 export default function DailySequence() {
   // 🚀 1. PULL CLOUD DATA & UPDATER
@@ -81,25 +82,29 @@ export default function DailySequence() {
       });
     }
     
-    const nextMission = allMissions.find(m => m.dayNumber === mission.dayNumber + 1);
+   const nextMission = allMissions.find(m => m.dayNumber === mission.dayNumber + 1);
     if (nextMission) {
       loadMissionState(nextMission);
     } else {
-      alert("You have conquered all available missions! Check back tomorrow for updates.");
+      // 🚀 Replaced alert with toast
+      toast.success("You have conquered all available missions! Check back tomorrow for updates.");
     }
   };
 
   // 🚀 4. SYNC VAULT & HIGHLIGHTS TO FIREBASE
+ // 🚀 4. SYNC VAULT & HIGHLIGHTS TO FIREBASE
   const handleMemorizeTopic = (slideHeading, slideContent) => {
     const existing = profile?.favMemorized || [];
     const newNote = { id: Date.now().toString(), heading: slideHeading, content: slideContent, type: 'line' };
     updateCloudProgress({ favMemorized: [newNote, ...existing] });
+    toast.success("Insight saved to your Memory Vault!"); // 🚀 Added toast
   };
 
   const handleHighlightSentence = (sentenceText, sourceTopic) => {
     const existing = profile?.favHighlights || [];
     const newHighlight = { id: Date.now().toString(), text: sentenceText, sourceTopic: sourceTopic };
     updateCloudProgress({ favHighlights: [newHighlight, ...existing] });
+    toast.success("Highlight securely saved!"); // 🚀 Added toast
   };
 
   if (isLoading) return <div className="flex justify-center items-center h-[70vh]"><div className="animate-spin w-12 h-12 border-4 border-brand-500 border-t-transparent rounded-full"></div></div>;
