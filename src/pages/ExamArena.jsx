@@ -160,10 +160,13 @@ export default function ExamArena() {
 
 
   // 🚀 EXAM STATUS & TIME LOCKS
+// 🚀 EXAM STATUS & TIME LOCKS
   const getExamStatus = (exam) => {
-    const attemptsMade = parseInt(localStorage.getItem(`psc_attempts_${exam.id}`) || '0');
-    const legacyCompleted = JSON.parse(localStorage.getItem('psc_completed_exams') || '[]');
-    const totalAttempts = Math.max(attemptsMade, legacyCompleted.includes(exam.id) ? 1 : 0);
+    // Read directly from Firebase Context instead of local storage
+    const attemptsMade = (globalScores || []).filter(score => score.examId === exam.id).length;
+    const isLegacyCompleted = (completedExams || []).includes(exam.id);
+    
+    const totalAttempts = Math.max(attemptsMade, isLegacyCompleted ? 1 : 0);
     const maxAllowed = exam.maxAttempts === 'unlimited' ? Infinity : (exam.maxAttempts || 1);
 
     if (totalAttempts >= maxAllowed) {
@@ -234,8 +237,8 @@ export default function ExamArena() {
   const historyWeekly = filterExams(weeklyMocks).filter(exam => getExamStatus(exam).id !== 'new');
 
   const totalModuleExams = grandMocks.length + weeklyMocks.length;
-  const allCompletedExams = JSON.parse(localStorage.getItem('psc_completed_exams') || '[]');
-  const completedModuleExams = allCompletedExams.filter(id => [...grandMocks, ...weeklyMocks].some(m => m.id === id)).length;
+  // 🚀 FIXED: Read completed module exams from Firebase context
+  const completedModuleExams = (completedExams || []).filter(id => [...grandMocks, ...weeklyMocks].some(m => m.id === id)).length;
   const pendingExamsCount = Math.max(0, totalModuleExams - completedModuleExams);
 
 const handleLaunchExam = (exam) => {
