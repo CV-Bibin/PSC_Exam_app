@@ -70,14 +70,19 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
   const isNegativeMarkingApplicable = curriculumData?.isGrandMock || examId.includes('monthly') || examId.includes('live') || examId.includes('grand');
   const PENALTY_SCORE = 0.33;
 
-  useEffect(() => {
+ useEffect(() => {
+    // 🚀 PREVENT RESULT SCREEN SKIP: If the user just submitted the exam, 
+    // block Firebase from forcing the app straight into Review Mode.
+    if (isExamSubmitted) return;
+
     if (forceReviewMode) {
-      const hist = JSON.parse(localStorage.getItem(`psc_exam_history_${examId}`) || 'null');
+      // 🚀 Pull from cloud history instead of local storage
+      const hist = (globalScores || []).find(e => e.examId === examId);
       setIsReviewMode(true);
       setIsExamSubmitted(true);
       setScore(hist?.score || 0);
       setUserAnswers(hist?.answers || {});
-      setViewedQuestions(gameData.map((_, i) => i));
+      setViewedQuestions(gameData.map((_, i) => i)); 
     } else {
       setIsReviewMode(false);
       setIsExamSubmitted(false);
@@ -90,7 +95,6 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
       setViewedQuestions([0]);
     }
   }, [forceReviewMode, examId, gameData.length]);
-
  const handleSaveQuestion = (q) => {
     // 🚀 READ FROM FIREBASE CLOUD PROFILE
     const savedQs = profile?.favQuestions || [];
