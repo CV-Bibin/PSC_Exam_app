@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from 'chart.js';
 import { Line } from 'react-chartjs-2';
-import { Activity, TrendingUp, Flame, Target, BookOpen, Award, ShieldAlert, CheckCircle2, History, Database, CheckSquare } from 'lucide-react';
+import { Activity, TrendingUp, Flame, Target, BookOpen, Award, ShieldAlert, CheckCircle2, Database, CheckSquare } from 'lucide-react';
 import { db } from '../services/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
@@ -32,18 +32,21 @@ export default function MyActivity() {
   const [chartData, setChartData] = useState({ labels: [], datasets: [] });
   const [aeSyllabusProgress, setAeSyllabusProgress] = useState([]);
   
-  // 🚀 NEW: Server Deployment Stats
-const [totalSlidesDeployed, setTotalSlidesDeployed] = useState(0);
+  // 🚀 Server Deployment Stats
+  const [totalSlidesDeployed, setTotalSlidesDeployed] = useState(0);
 
   // 🚀 1. PULL REAL-TIME CLOUD DATA FROM FIREBASE
   const { completedDays, globalScores, completedExams, mistakes, dailyCompletionsLog } = useAuth();
 
   useEffect(() => {
     const fetchDashboardData = async () => {
-      // 🚀 2. MAP CLOUD DATA TO YOUR LOGIC (NO MORE LOCAL STORAGE!)
+      // 🚀 2. MAP CLOUD DATA TO YOUR LOGIC
       const completedExamsCount = completedExams?.length || 0;
       const mistakeLog = mistakes || [];
       const completionsLog = dailyCompletionsLog || {};
+      
+      // Filter out invalid score entries to prevent NaN errors
+      const validScores = (globalScores || []).filter(s => s.score !== undefined && s.total > 0);
 
       // 2. FETCH SERVER SLIDE COUNT (Firebase)
       let dbSlideCount = 0;
@@ -65,11 +68,14 @@ const [totalSlidesDeployed, setTotalSlidesDeployed] = useState(0);
       if (currentLevel >= 10) currentRankTitle = "Overseer Gr-I";
       if (currentLevel >= 15) currentRankTitle = "Assistant Engineer";
 
-      // 4. COMBAT AVERAGE MATH
+      // 🚀 4. COMBAT AVERAGE MATH (FIXED: Calculates percentage dynamically)
       let avg = 0;
-      if (globalScores.length > 0) {
-        const totalPercent = globalScores.reduce((sum, exam) => sum + (exam.percentage || 0), 0);
-        avg = Math.round(totalPercent / globalScores.length);
+      if (validScores.length > 0) {
+        const totalPercent = validScores.reduce((sum, exam) => {
+          const pct = (exam.score / exam.total) * 100;
+          return sum + pct;
+        }, 0);
+        avg = Math.round(totalPercent / validScores.length);
       }
 
       // 5. STREAK CALCULATOR
@@ -118,10 +124,12 @@ const [totalSlidesDeployed, setTotalSlidesDeployed] = useState(0);
         resolutionRate: mistakeLog.length > 0 ? Math.round((mst / mistakeLog.length) * 100) : 0
       });
 
-      // 7. DYNAMIC LINE CHART (Last 7 Real Exams)
-      const recentScores = globalScores.slice(-7);
+      // 🚀 7. DYNAMIC LINE CHART (FIXED: Uses dynamically calculated percentage)
+      const recentScores = validScores.slice(-7);
       const labels = recentScores.length > 0 ? recentScores.map((_, i) => `Exam ${i + 1}`) : ['No Data'];
-      const dataPoints = recentScores.length > 0 ? recentScores.map(s => s.percentage || 0) : [0];
+      const dataPoints = recentScores.length > 0 
+        ? recentScores.map(s => Math.round((s.score / s.total) * 100)) 
+        : [0];
 
       setChartData({
         labels: labels,
@@ -152,9 +160,9 @@ const [totalSlidesDeployed, setTotalSlidesDeployed] = useState(0);
 
       // 8. OFFICIAL KSHB AE SYLLABUS (100 Marks Total)
       const totalDaysDone = completedDays.length;
-      const baseTotalSlides = dbSlideCount > 0 ? dbSlideCount : 100; // Fallback to 100 if DB is empty
+      // 8. OFFICIAL KSHB AE SYLLABUS WEIGHTAGE & STRENGTH TRACKING
+      const baseTotalSlides = dbSlideCount > 0 ? dbSlideCount : 100;
       
-      // Exact mapping to the official syllabus
       const aeModules = [
         { name: "Mechanics of Solids & Structural Analysis", weightage: 10 },
         { name: "Fluid Mechanics & Water Resources", weightage: 10 },
@@ -166,34 +174,40 @@ const [totalSlidesDeployed, setTotalSlidesDeployed] = useState(0);
         { name: "Transportation Engg & Urban Planning", weightage: 10 },
       ];
 
-      let remainingDays = totalDaysDone;
+      let currentDayTracker = 1;
       const mappedSyllabus = aeModules.map(mod => {
-        // Calculate dynamically how many slides this module requires based on its weightage percentage
         const targetDays = Math.ceil((mod.weightage / 100) * baseTotalSlides);
-        
-        let daysApplied = 0;
-        if (remainingDays >= targetDays) {
-          daysApplied = targetDays;
-          remainingDays -= targetDays;
-        } else if (remainingDays > 0) {
-          daysApplied = remainingDays;
-          remainingDays = 0;
+        const modStartDay = currentDayTracker;
+        const modEndDay = currentDayTracker + targetDays - 1;
+        currentDayTracker += targetDays;
+
+        // 🚀 Find exams taken that belong to this specific module's day range
+        const moduleExams = (globalScores || []).filter(score => {
+          if (!score.examId || !score.examId.startsWith('daily_')) return false;
+          const day = parseInt(score.examId.replace('daily_', ''), 10);
+          return day >= modStartDay && day <= modEndDay;
+        });
+
+        let moduleAccuracy = 0;
+        let isAttempted = false;
+
+        // Calculate actual accuracy from Firebase scores
+        if (moduleExams.length > 0) {
+          isAttempted = true;
+          const modTotalScore = moduleExams.reduce((sum, ex) => sum + (ex.score || 0), 0);
+          const modTotalQs = moduleExams.reduce((sum, ex) => sum + (ex.total || 0), 0);
+          moduleAccuracy = modTotalQs > 0 ? Math.round((modTotalScore / modTotalQs) * 100) : 0;
         }
-        
-        // Calculate marks covered mathematically
-        const marksCovered = targetDays > 0 ? (daysApplied / targetDays) * mod.weightage : 0;
-        
+
         return { 
           ...mod, 
-          daysApplied,
-          targetDays,
-          marksCovered: parseFloat(marksCovered.toFixed(1)),
-          isComplete: daysApplied === targetDays && targetDays > 0
+          accuracy: moduleAccuracy,
+          isAttempted
         };
       });
 
       setAeSyllabusProgress(mappedSyllabus);
-  };
+    };
 
     fetchDashboardData();
   }, [completedDays, globalScores, completedExams, mistakes, dailyCompletionsLog]);
@@ -286,7 +300,7 @@ const [totalSlidesDeployed, setTotalSlidesDeployed] = useState(0);
             </span>
           </div>
           <div className="h-72 w-full flex-1 relative">
-            {chartData.datasets[0]?.data?.length > 1 ? (
+            {chartData.datasets[0]?.data?.length > 0 && chartData.labels[0] !== 'No Data' ? (
               <Line ref={chartRef} data={chartData} options={chartOptions} />
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 font-bold text-sm border border-dashed border-slate-700/50 rounded-2xl">
@@ -301,13 +315,13 @@ const [totalSlidesDeployed, setTotalSlidesDeployed] = useState(0);
         <div className="bg-slate-900/50 backdrop-blur-md p-6 md:p-8 rounded-[2.5rem] border border-slate-700/50 shadow-xl flex flex-col relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-rose-500/5 rounded-full blur-[40px]"></div>
           
-          <div className="flex justify-between items-center border-b border-slate-800 pb-5 mb-6">
+          <div className="flex justify-between items-center border-b border-slate-800 pb-5 mb-6 relative z-10">
             <h3 className="font-black text-white text-xl flex items-center gap-3">
               <ShieldAlert className="text-rose-400" size={24} /> Log Analytics
             </h3>
           </div>
           
-          <div className="flex-1 flex flex-col justify-center">
+          <div className="flex-1 flex flex-col justify-center relative z-10">
             <div className="text-center mb-8">
               <span className="text-5xl font-black text-white">{mistakeStats.resolutionRate}<span className="text-2xl text-slate-500">%</span></span>
               <p className="text-[10px] uppercase tracking-widest font-black text-emerald-500 mt-2">Error Resolution Rate</p>
@@ -317,107 +331,129 @@ const [totalSlidesDeployed, setTotalSlidesDeployed] = useState(0);
               <div className="bg-slate-950/80 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
                 <div className="flex items-center gap-3 text-sm font-bold text-slate-300">
                   <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
-                  Critical Errors (Streak 0)
+                  Critical Errors <span className="text-xs text-slate-500 ml-1">(Streak 0)</span>
                 </div>
-                <span className="font-black text-rose-400">{mistakeStats.critical}</span>
+                <span className="font-black text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-lg border border-rose-500/20">{mistakeStats.critical}</span>
               </div>
 
               <div className="bg-slate-950/80 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
                 <div className="flex items-center gap-3 text-sm font-bold text-slate-300">
                   <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-                  Learning Phase (Streak 1-2)
+                  Learning Phase <span className="text-xs text-slate-500 ml-1">(Streak 1-2)</span>
                 </div>
-                <span className="font-black text-amber-400">{mistakeStats.learning}</span>
+                <span className="font-black text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20">{mistakeStats.learning}</span>
               </div>
 
               <div className="bg-slate-950/80 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
                 <div className="flex items-center gap-3 text-sm font-bold text-slate-300">
                   <CheckCircle2 size={14} className="text-emerald-500" />
-                  Mastered (Streak 3+)
+                  Mastered <span className="text-xs text-slate-500 ml-1">(Streak 3+)</span>
                 </div>
-                <span className="font-black text-emerald-400">{mistakeStats.mastered}</span>
+                <span className="font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20">{mistakeStats.mastered}</span>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 🚀 NEW: SLIDE DEPLOYMENT STATUS */}
+      {/* 🚀 SLIDE DEPLOYMENT STATUS */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
-        <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-6 md:p-8 rounded-[2rem] border border-sky-500/20 shadow-xl flex items-center justify-between group">
-          <div className="flex items-center gap-4">
-            <div className="p-4 bg-sky-500/10 rounded-2xl text-sky-400 shadow-inner group-hover:scale-110 transition-transform duration-300">
+        <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-6 md:p-8 rounded-[2.5rem] border border-sky-500/20 shadow-xl flex items-center justify-between group overflow-hidden relative">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,_var(--tw-gradient-stops))] from-sky-500/10 via-transparent to-transparent pointer-events-none opacity-50"></div>
+          <div className="flex items-center gap-5 relative z-10">
+            <div className="p-4 bg-sky-500/10 rounded-[1.5rem] text-sky-400 shadow-inner group-hover:scale-110 transition-transform duration-300 border border-sky-500/20">
               <Database size={32} />
             </div>
             <div>
               <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Server Synchronization</p>
-              <h4 className="text-2xl font-black text-white">{totalSlidesDeployed} Slides Deployed</h4>
+              <h4 className="text-2xl font-black text-white">{totalSlidesDeployed} <span className="text-lg text-slate-400 font-medium">Slides Deployed</span></h4>
             </div>
           </div>
         </div>
 
-        <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-6 md:p-8 rounded-[2rem] border border-emerald-500/20 shadow-xl flex items-center justify-between group">
-          <div className="flex items-center gap-4">
-            <div className="p-4 bg-emerald-500/10 rounded-2xl text-emerald-400 shadow-inner group-hover:scale-110 transition-transform duration-300">
+        <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-6 md:p-8 rounded-[2.5rem] border border-emerald-500/20 shadow-xl flex items-center justify-between group overflow-hidden relative">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,_var(--tw-gradient-stops))] from-emerald-500/10 via-transparent to-transparent pointer-events-none opacity-50"></div>
+          <div className="flex items-center gap-5 relative z-10">
+            <div className="p-4 bg-emerald-500/10 rounded-[1.5rem] text-emerald-400 shadow-inner group-hover:scale-110 transition-transform duration-300 border border-emerald-500/20">
               <CheckSquare size={32} />
             </div>
             <div>
               <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Local Mastery</p>
-              <h4 className="text-2xl font-black text-white">{stats.missionsCleared} Slides Mastered</h4>
+              <h4 className="text-2xl font-black text-white">{stats.missionsCleared} <span className="text-lg text-slate-400 font-medium">Slides Mastered</span></h4>
             </div>
           </div>
-          <div className="text-right">
-            <span className="text-3xl font-black text-emerald-400">
+          <div className="text-right relative z-10">
+            <span className="text-3xl font-black text-emerald-400 bg-emerald-950/50 px-4 py-2 rounded-2xl border border-emerald-500/20 shadow-inner inline-block">
               {totalSlidesDeployed > 0 ? Math.round((stats.missionsCleared / totalSlidesDeployed) * 100) : 0}%
             </span>
           </div>
         </div>
       </div>
 
-      {/* 5. OFFICIAL KSHB AE SYLLABUS WEIGHTAGE (100 Marks Mapping) */}
+    {/* 5. SUBJECT STRENGTH & ACCURACY (MAPPED TO SYLLABUS) */}
       <div className="bg-slate-900/50 backdrop-blur-md p-6 md:p-8 rounded-[2.5rem] border border-slate-700/50 shadow-xl flex flex-col">
         <div className="flex items-center justify-between border-b border-slate-800 pb-5 mb-8">
           <div>
             <h3 className="font-black text-white text-xl flex items-center gap-3">
-              <BookOpen className="text-brand-400" size={24} /> Official AE (Civil) Syllabus Tracking
+              <BookOpen className="text-brand-400" size={24} /> Subject Strength & Accuracy
             </h3>
-            <p className="text-xs text-slate-400 mt-1 font-medium ml-9">Mapped perfectly to the KSHB 100-Mark schema (Cat No: 097/2025, 180/2025).</p>
+            <p className="text-xs text-slate-400 mt-1 font-medium ml-9">Analyzes your combat performance mapped to the official KSHB 100-Mark syllabus weightage.</p>
           </div>
           <span className="text-[10px] font-black text-white uppercase tracking-widest bg-brand-500/20 px-4 py-2 rounded-xl border border-brand-500/30 shadow-inner hidden md:block">
             Target: 100 Marks
           </span>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-8 pr-2 max-h-[600px] overflow-y-auto custom-scrollbar">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
           {aeSyllabusProgress.map((mod, idx) => {
-            const percentage = mod.targetDays > 0 ? (mod.daysApplied / mod.targetDays) * 100 : 0;
-            const inProgress = percentage > 0 && !mod.isComplete;
             
+            // Dynamic Color Grading based on Performance
+            let statusLabel = "Not Started";
+            let statusColor = "bg-slate-900 border-slate-800 text-slate-500";
+            let barColor = "bg-slate-800";
+            let valueColor = "text-slate-500";
+
+            if (mod.isAttempted) {
+              if (mod.accuracy >= 80) {
+                statusLabel = "Strong";
+                statusColor = "bg-emerald-500/10 border-emerald-500/30 text-emerald-400";
+                barColor = "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]";
+                valueColor = "text-emerald-400";
+              } else if (mod.accuracy >= 50) {
+                statusLabel = "Average";
+                statusColor = "bg-amber-500/10 border-amber-500/30 text-amber-400";
+                barColor = "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]";
+                valueColor = "text-amber-400";
+              } else {
+                statusLabel = "Weak";
+                statusColor = "bg-rose-500/10 border-rose-500/30 text-rose-400";
+                barColor = "bg-rose-500 shadow-[0_0_10px_rgba(225,29,72,0.5)]";
+                valueColor = "text-rose-400";
+              }
+            }
+
             return (
-              <div key={idx} className="group">
-                <div className="flex justify-between items-end mb-2.5">
-                  <span className={`text-sm font-black transition-colors truncate pr-4 ${
-                    mod.isComplete ? 'text-emerald-400' : 
-                    inProgress ? 'text-brand-400' : 'text-slate-500 group-hover:text-slate-400'
-                  }`}>
-                    {mod.name}
-                  </span>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono shrink-0">
-                    <span className={mod.isComplete ? 'text-emerald-400' : 'text-white'}>{mod.marksCovered}</span> / {mod.weightage} Mks
-                  </span>
-                </div>
-                <div className="w-full bg-slate-950 rounded-full h-3 overflow-hidden border border-slate-800 shadow-inner relative">
-                  <div 
-                    className={`h-full rounded-full transition-all duration-1000 relative overflow-hidden ${
-                      mod.isComplete ? 'bg-gradient-to-r from-emerald-600 to-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.5)]' 
-                      : 'bg-gradient-to-r from-brand-600 to-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
-                    }`}
-                    style={{ width: `${Math.min(percentage, 100)}%` }}
-                  >
-                    {percentage > 0 && (
-                      <div className="absolute inset-0 bg-white/20 w-full animate-[shimmer_2s_infinite] -skew-x-12"></div>
-                    )}
+              <div key={idx} className="bg-slate-950/40 p-5 rounded-2xl border border-slate-800 hover:border-slate-600 transition-colors group">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="pr-4">
+                    <h4 className="text-sm font-bold text-slate-300 group-hover:text-white transition-colors">{mod.name}</h4>
+                    <p className="text-[10px] font-black text-brand-400/80 uppercase tracking-widest mt-1.5">Weightage: {mod.weightage} Marks</p>
                   </div>
+                  <div className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border shrink-0 ${statusColor}`}>
+                    {statusLabel}
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 bg-slate-900 rounded-full h-2 overflow-hidden border border-slate-800 shadow-inner">
+                    <div 
+                      className={`h-full rounded-full transition-all duration-1000 ${barColor}`} 
+                      style={{ width: `${mod.isAttempted ? mod.accuracy : 0}%` }}
+                    ></div>
+                  </div>
+                  <span className={`text-xs font-black w-9 text-right ${valueColor}`}>
+                    {mod.isAttempted ? `${mod.accuracy}%` : '-'}
+                  </span>
                 </div>
               </div>
             );

@@ -1,77 +1,92 @@
 import { useState, useEffect } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../../services/firebase';
-import { collection, getDocs, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
+import { collection, onSnapshot, query, limit, orderBy } from 'firebase/firestore';
 import { 
   Compass, Flame, Award, Moon, Sun, LayoutDashboard, Activity, Target, 
-  Bot, MessageSquare, Bookmark, BrainCircuit, LogOut, ShieldAlert, FastForward, Swords
+  MessageSquare, Bookmark, BrainCircuit, LogOut, ShieldAlert, FastForward, Swords
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import toast from 'react-hot-toast';
 
 export default function Layout() {
-  const { user, isAdmin, logout } = useAuth();
+  const { user, isAdmin, logout, completedExams, mistakes, completedDays } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [isDark, setIsDark] = useState(true);
   
-  // 🚀 NOTIFICATION STATES
-  const [unattemptedExams, setUnattemptedExams] = useState(0);
-  const [unreadChats, setUnreadChats] = useState(0);
-  const [pendingMistakes, setPendingMistakes] = useState(0);
+  // 🚀 NOTIFICATION STATES (For Red Dots)
+  const [hasNewExams, setHasNewExams] = useState(false);
+  const [hasNewChat, setHasNewChat] = useState(false);
+  const [hasMistakes, setHasMistakes] = useState(false);
 
-  const userState = { xp: 1450, level: 3, streak: 5, rankTitle: "Overseer Gr-I" };
+  // 🚀 DYNAMIC USER STATS (Calculated from Cloud Data)
+  const calculatedXP = (completedDays?.length || 0) * 50 + (completedExams?.length || 0) * 150;
+  const currentLevel = Math.floor(calculatedXP / 1000) + 1;
+  
+  let currentRankTitle = "Aspirant";
+  if (currentLevel >= 3) currentRankTitle = "Overseer Gr-III";
+  if (currentLevel >= 5) currentRankTitle = "Overseer Gr-II";
+  if (currentLevel >= 10) currentRankTitle = "Overseer Gr-I";
+  if (currentLevel >= 15) currentRankTitle = "Assistant Engineer";
 
-  // 1. EXAM NOTIFICATIONS (Checks for unattempted published mocks)
+  // Calculate Streak dynamically
+  const userState = { xp: calculatedXP, level: currentLevel, streak: 0, rankTitle: currentRankTitle };
+
+  // 1. EXAM NOTIFICATIONS (Cloud synced)
   useEffect(() => {
-    const checkForNewExams = async () => {
-      try {
-        const snap = await getDocs(collection(db, 'weekly_mocks'));
-        const completedExams = JSON.parse(localStorage.getItem('psc_completed_exams') || '[]');
-        const pendingCount = snap.docs.filter(doc => !completedExams.includes(doc.id)).length;
-        setUnattemptedExams(pendingCount);
-      } catch (error) {
-        console.error("Failed to fetch exams for notification:", error);
+    const checkForNewExams = () => {
+      const totalDays = completedDays?.length || 0;
+      const expectedWeeklyMocks = Math.floor(totalDays / 6);
+      const expectedMonthlyMocks = Math.floor(totalDays / 26);
+      
+      const totalExpectedExams = expectedWeeklyMocks + expectedMonthlyMocks;
+      const takenExams = completedExams?.length || 0;
+      
+      if (totalExpectedExams > takenExams) {
+        setHasNewExams(true);
+      } else {
+        setHasNewExams(false);
       }
     };
     checkForNewExams();
-  }, []);
+  }, [completedExams, completedDays]);
 
-  // 2. REAL-TIME CHAT NOTIFICATIONS
+  // 2. REAL-TIME CHAT NOTIFICATIONS (Checks Firebase)
   useEffect(() => {
-    const lastReadTimestamp = parseInt(localStorage.getItem('psc_last_chat_read') || '0');
-    const chatRef = collection(db, 'global_discussions');
-    const q = query(chatRef, orderBy('createdAt', 'desc'), limit(50));
-
+    const q = query(collection(db, 'global_discussions'), orderBy('timestamp', 'desc'), limit(1));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      let unreadCount = 0;
-      snapshot.forEach((doc) => {
-        const msgData = doc.data();
-        const msgTime = msgData.createdAt?.toMillis() || 0;
-        if (msgTime > lastReadTimestamp) unreadCount++;
-      });
-      setUnreadChats(unreadCount);
+      if (!snapshot.empty) {
+        const latestDoc = snapshot.docs[0].data();
+        const lastSeen = localStorage.getItem('psc_last_chat_seen');
+        
+        if (!lastSeen) {
+          setHasNewChat(true);
+        } else {
+          const lastSeenDate = new Date(lastSeen).getTime();
+          const latestMsgDate = latestDoc.timestamp ? latestDoc.timestamp.toDate().getTime() : Date.now();
+          
+          // If message is newer than last visit AND they aren't currently on the chat page
+          if (latestMsgDate > lastSeenDate && location.pathname !== '/discuss') {
+            setHasNewChat(true);
+          }
+        }
+      }
     });
-
     return () => unsubscribe();
-  }, []);
+  }, [location.pathname]);
 
-  // 3. MISTAKE LOG NOTIFICATIONS
+  // 3. MISTAKE LOG NOTIFICATIONS (Cloud synced)
   useEffect(() => {
-    const checkMistakes = () => {
-      const mistakes = JSON.parse(localStorage.getItem('psc_mistakes') || '[]');
-      setPendingMistakes(mistakes.length);
-    };
-    
-    checkMistakes(); // Initial check
-    
-    // Listen for changes if a mistake is made in the Exam Arena
-    window.addEventListener('storage', checkMistakes);
-    return () => window.removeEventListener('storage', checkMistakes);
-  }, []);
+    // Shows dot if there are any mistakes that haven't reached 'Mastered' status (Streak 3)
+    const activeMistakes = (mistakes || []).filter(m => (m.streak || 0) < 3);
+    setHasMistakes(activeMistakes.length > 0);
+  }, [mistakes]);
 
-  // CLEAR CHAT NOTIFICATION
+  // CLEAR CHAT NOTIFICATION ON CLICK
   const handleChatTabClick = () => {
-    localStorage.setItem('psc_last_chat_read', Date.now().toString());
-    setUnreadChats(0);
+    localStorage.setItem('psc_last_chat_seen', new Date().toISOString());
+    setHasNewChat(false);
   };
 
   const handleLogout = async () => {
@@ -84,14 +99,7 @@ export default function Layout() {
   };
 
   const toggleTheme = () => {
-    const root = document.documentElement;
-    if (isDark) {
-      root.classList.remove('dark');
-      setIsDark(false);
-    } else {
-      root.classList.add('dark');
-      setIsDark(true);
-    }
+    toast("Light Theme is currently in development for v2.0! Enjoy the tactical dark mode for now.", { icon: '🌙' });
   };
 
   return (
@@ -147,32 +155,25 @@ export default function Layout() {
       </header>
 
       <nav className="bg-slate-900/90 border-b border-slate-800 sticky top-[65px] z-30 px-4">
-        <div className="max-w-7xl mx-auto flex items-center overflow-x-auto custom-scrollbar gap-2 py-2">
+        <div className="max-w-7xl mx-auto flex items-center overflow-x-auto custom-scrollbar gap-2 py-3">
           <NavItem to="/dashboard" icon={<LayoutDashboard size={16} />} label="Dashboard" />
           <NavItem to="/daily" icon={<Target size={16} />} label="Daily Sequence" />
           <NavItem to="/revision" icon={<FastForward size={16} />} label="Daily Revision" />
           
-          {/* EXAM ARENA TAB with notification */}
-          <NavItem to="/arena" icon={<Swords size={16} />} label="Exam Arena" badge={unattemptedExams} />
+          <NavItem to="/arena" icon={<Swords size={16} />} label="Exam Arena" hasNotification={hasNewExams} />
           
-          {/* LIVE DISCUSSION TAB with onClick clearance and notification */}
-          <NavLink 
+          {/* LIVE DISCUSSION TAB */}
+          <NavItem 
             to="/discuss" 
-            onClick={handleChatTabClick}
-            className={({ isActive }) => 
-              `flex items-center px-4 py-2 rounded-lg font-semibold whitespace-nowrap text-sm transition relative
-              ${isActive ? 'text-slate-950 bg-brand-500 shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`
-            }
-          >
-            <MessageSquare size={16} className="mr-2" />
-            <span>Live Discussion</span>
-            <NotificationBubble count={unreadChats} />
-          </NavLink>
+            icon={<MessageSquare size={16} />} 
+            label="Live Discussion" 
+            hasNotification={hasNewChat}
+            onClick={handleChatTabClick} 
+          />
           
           <NavItem to="/vault" icon={<Bookmark size={16} />} label="My Favorites" />
           
-          {/* MISTAKE LOG TAB with notification */}
-          <NavItem to="/mistakes" icon={<BrainCircuit size={16} />} label="Mistake Log" badge={pendingMistakes} />
+          <NavItem to="/mistakes" icon={<BrainCircuit size={16} />} label="Mistake Log" hasNotification={hasMistakes} />
           
           {(isAdmin || (user && user.email === 'admin@psccivil.com')) && (
             <NavItem to="/admin" icon={<ShieldAlert size={16} className="text-rose-400" />} label="Admin Controls" />
@@ -187,33 +188,35 @@ export default function Layout() {
   );
 }
 
-// 🚀 REUSABLE NOTIFICATION BUBBLE COMPONENT
-function NotificationBubble({ count }) {
-  if (!count || count <= 0) return null;
-  const displayCount = count > 99 ? '99+' : count;
+// 🚀 REUSABLE NOTIFICATION DOT COMPONENT
+function NotificationDot({ show }) {
+  if (!show) return null;
   
   return (
-    <span className="ml-2 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 bg-rose-500 text-white text-[11px] font-black rounded-full shadow-md animate-in zoom-in-95 duration-300">
-      {displayCount}
+    <span className="absolute top-1.5 right-1.5 flex h-2.5 w-2.5">
+      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 shadow-[0_0_8px_rgba(225,29,72,0.8)]"></span>
     </span>
   );
 }
 
-// 🚀 UPGRADED NAV ITEM WITH BUBBLE INTEGRATION
-function NavItem({ to, icon, label, badge, onClick }) {
+// 🚀 UPGRADED NAV ITEM WITH DOT INTEGRATION
+function NavItem({ to, icon, label, hasNotification, onClick }) {
   return (
     <NavLink 
       to={to}
       onClick={onClick}
       className={({ isActive }) => `
-        px-4 py-2 rounded-lg font-semibold flex items-center whitespace-nowrap text-sm transition relative
-        ${isActive ? 'text-brand-400 bg-brand-500/10 border border-brand-500/30 shadow-[0_0_15px_rgba(245,158,11,0.2)]' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-transparent'}
+        px-4 py-2 rounded-xl font-bold flex items-center whitespace-nowrap text-[13px] tracking-wide transition-all relative
+        ${isActive 
+          ? 'text-brand-400 bg-brand-500/10 border border-brand-500/30 shadow-[0_0_15px_rgba(245,158,11,0.2)]' 
+          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-transparent'}
       `}
     >
       <div className="flex items-center gap-2">
         {icon} <span>{label}</span>
       </div>
-      <NotificationBubble count={badge} />
+      <NotificationDot show={hasNotification} />
     </NavLink>
   );
 }
