@@ -9,7 +9,7 @@ import { useAuth } from '../context/AuthContext';
 
 export default function GameEngine({ gameType, curriculumData, onExit, onMarkComplete, isExamMode = false, forceReviewMode = false, examId = 'default', dayNumber }) {
   const navigate = useNavigate();
- const { globalScores, completedExams, mistakes: cloudMistakes, updateCloudProgress, profile } = useAuth();
+ const { globalScores, completedExams, mistakes: cloudMistakes, updateCloudProgress, profile, completedDays } = useAuth();
 
   const [isReviewMode, setIsReviewMode] = useState(forceReviewMode);
   const [isExamSubmitted, setIsExamSubmitted] = useState(forceReviewMode);
