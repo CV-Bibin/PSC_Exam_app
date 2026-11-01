@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import toast from 'react-hot-toast';
 import { 
   Bookmark, Highlighter, BrainCircuit, Target, Trash2, 
-  BookOpen, CheckCircle2, Bot, Users, Layers, Quote 
+  BookOpen, CheckCircle2, Bot, Users, Layers, Quote, AlertTriangle, X 
 } from 'lucide-react';
 
 export default function Favorites() {
@@ -14,7 +15,10 @@ export default function Favorites() {
   const [highlightedLines, setHighlightedLines] = useState([]);
   const [memorizedNotes, setMemorizedNotes] = useState([]);
 
- // 🚀 Pull Vault data from Firebase user profile
+  // 🚀 Custom Modal State
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
+
+  // 🚀 Pull Vault data from Firebase user profile
   const { profile, updateCloudProgress } = useAuth();
 
   useEffect(() => {
@@ -23,28 +27,50 @@ export default function Favorites() {
     setMemorizedNotes(profile?.favMemorized || []);
   }, [profile]);
 
- const removeQuestion = (idToRemove) => {
-    if (window.confirm("Remove this question from your favorites?")) {
-      const updated = favoriteQuestions.filter(q => q.id !== idToRemove);
-      setFavoriteQuestions(updated);
-      updateCloudProgress({ favQuestions: updated }); // 🚀 Cloud Sync
-    }
+  // 🚀 Updated Removal Functions (Now triggering the custom modal)
+  const removeQuestion = (idToRemove) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Remove Question',
+      message: 'Are you sure you want to remove this question from your favorites? You will not be able to recover it.',
+      onConfirm: () => {
+        const updated = favoriteQuestions.filter(q => q.id !== idToRemove);
+        setFavoriteQuestions(updated);
+        updateCloudProgress({ favQuestions: updated }); // Cloud Sync
+        toast.success("Question removed from Vault.");
+        setConfirmModal({ isOpen: false });
+      }
+    });
   };
 
   const removeHighlight = (idToRemove) => {
-    if (window.confirm("Remove this highlight?")) {
-      const updated = highlightedLines.filter(h => h.id !== idToRemove);
-      setHighlightedLines(updated);
-      updateCloudProgress({ favHighlights: updated }); // 🚀 Cloud Sync
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Remove Highlight',
+      message: 'Are you sure you want to delete this highlight?',
+      onConfirm: () => {
+        const updated = highlightedLines.filter(h => h.id !== idToRemove);
+        setHighlightedLines(updated);
+        updateCloudProgress({ favHighlights: updated }); // Cloud Sync
+        toast.success("Highlight removed.");
+        setConfirmModal({ isOpen: false });
+      }
+    });
   };
 
   const removeMemorized = (idToRemove) => {
-    if (window.confirm("Remove this insight from your vault?")) {
-      const updated = memorizedNotes.filter(m => m.id !== idToRemove);
-      setMemorizedNotes(updated);
-      updateCloudProgress({ favMemorized: updated }); // 🚀 Cloud Sync
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Remove Insight',
+      message: 'Are you sure you want to delete this insight from your vault?',
+      onConfirm: () => {
+        const updated = memorizedNotes.filter(m => m.id !== idToRemove);
+        setMemorizedNotes(updated);
+        updateCloudProgress({ favMemorized: updated }); // Cloud Sync
+        toast.success("Insight removed from Vault.");
+        setConfirmModal({ isOpen: false });
+      }
+    });
   };
 
   // --- SMART CATEGORIZATION LOGIC ---
@@ -66,7 +92,7 @@ export default function Favorites() {
   });
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500 pb-16">
+    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500 pb-16 relative">
       
       {/* HEADER */}
       <div className="bg-civil-card/70 backdrop-blur-md p-8 rounded-3xl border border-brand-500/20 bg-gradient-to-r from-slate-900 via-slate-900/90 to-brand-950/40 shadow-2xl flex items-center gap-6">
@@ -196,6 +222,29 @@ export default function Favorites() {
           )}
         </div>
       )}
+
+      {/* ========================================= */}
+      {/* 🚀 CUSTOM CONFIRMATION MODAL            */}
+      {/* ========================================= */}
+      {confirmModal.isOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-rose-500/20 text-rose-400 rounded-full shrink-0"><AlertTriangle size={24} /></div>
+                <h3 className="text-xl font-bold text-white leading-tight">{confirmModal.title}</h3>
+              </div>
+              <button onClick={() => setConfirmModal({ isOpen: false })} className="text-slate-500 hover:text-white transition"><X size={20}/></button>
+            </div>
+            <p className="text-slate-300 text-sm mb-8 leading-relaxed ml-16">{confirmModal.message}</p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setConfirmModal({ isOpen: false })} className="px-5 py-2.5 text-slate-400 hover:text-white hover:bg-slate-800 font-bold text-sm rounded-xl transition">Cancel</button>
+              <button onClick={confirmModal.onConfirm} className="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-sm rounded-xl shadow-lg transition flex items-center gap-2"><Trash2 size={16}/> Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -245,17 +294,10 @@ function VaultSection({ title, icon: Icon, notes, onRemove, colorTheme }) {
               <ReactMarkdown 
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  // Automatically highlights **bold** text in bright amber
                   strong: ({node, ...props}) => <strong className="text-amber-400 font-bold" {...props} />,
-                  
-                  // Formats subheadings with a clean emerald border
                   h3: ({node, ...props}) => <h3 className="text-xl font-black text-emerald-400 mt-8 mb-4 border-b border-slate-700/50 pb-2" {...props} />,
                   h4: ({node, ...props}) => <h4 className="text-lg font-bold text-emerald-300 mt-6 mb-3" {...props} />,
-                  
-                  // Transforms *italics* into a highlighted callout block
                   em: ({node, ...props}) => <span className="bg-sky-500/10 border border-sky-500/20 text-sky-300 px-2 py-0.5 rounded-md not-italic font-semibold mx-1 shadow-sm" {...props} />,
-                  
-                  // Creates perfectly spaced bullet points with colored markers
                   ul: ({node, ...props}) => <ul className="space-y-3 my-5" {...props} />,
                   li: ({node, ...props}) => (
                     <li className="flex gap-3 items-start">
@@ -263,15 +305,12 @@ function VaultSection({ title, icon: Icon, notes, onRemove, colorTheme }) {
                       <span className="flex-1" {...props} />
                     </li>
                   ),
-                  
-                  // Formats paragraphs with generous reading spacing
                   p: ({node, ...props}) => <p className="mb-4 leading-loose" {...props} />
                 }}
               >
                 {note.content || note.text}
               </ReactMarkdown>
             </div>
-
           </div>
         ))}
       </div>
