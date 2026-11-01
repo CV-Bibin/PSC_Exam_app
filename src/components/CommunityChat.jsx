@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext'; // 🚀 Added to verify Admin 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Send, MessageSquare, Clock, AlertCircle, Bot, BookmarkPlus, Edit2, Trash2, X, Check, CheckCircle2, Languages, Loader2, Highlighter } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export default function CommunityChat() {
   const { isAdmin } = useAuth(); // 🚀 Pulls admin power from context
@@ -15,7 +16,7 @@ export default function CommunityChat() {
   const [isSending, setIsSending] = useState(false);
   const [isAITyping, setIsAITyping] = useState(false);
   
-  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+  
   const [showMentionPopup, setShowMentionPopup] = useState(false);
 
   const [editingMsgId, setEditingMsgId] = useState(null);
@@ -98,15 +99,24 @@ export default function CommunityChat() {
     setSelectionMenu(null);
   };
 
+  // 🚀 FIXED: Now saves directly to your Firebase profile!
+  const { profile, updateCloudProgress } = useAuth(); // Make sure this is at the top of your component!
+
   const handleSaveToVault = (text, author) => {
-    const vaultKey = 'psc_fav_memorized'; 
-    const savedVault = JSON.parse(localStorage.getItem(vaultKey) || '[]');
+    const savedVault = profile?.favMemorized || [];
+    
     if (!savedVault.find(item => item.content === text)) {
-      const newNote = { id: Date.now().toString(), heading: `Community Insight from ${author}`, content: text };
-      localStorage.setItem(vaultKey, JSON.stringify([newNote, ...savedVault]));
-      triggerToast("Insight saved to your Vault!");
+      const newNote = { 
+        id: Date.now().toString(), 
+        heading: `Community Insight from ${author}`, 
+        content: text, 
+        type: 'ai_note' // Saves it cleanly into your vault format
+      };
+      
+      updateCloudProgress({ favMemorized: [newNote, ...savedVault] });
+      toast.success("Insight saved to your Vault!");
     } else {
-      triggerToast("Already saved in your Vault.", "error");
+      toast.error("Already saved in your Vault.");
     }
   };
 
@@ -175,6 +185,11 @@ export default function CommunityChat() {
     }
   };
 
+
+  const initiateEdit = (msg) => {
+    setEditingMsgId(msg.id);
+    setEditContent(msg.text);
+  };
   const handleUpdateMessage = async (id) => {
     if (!editContent.trim()) return;
     try {
@@ -253,16 +268,7 @@ export default function CommunityChat() {
         </div>
       )}
 
-      {toast.show && (
-        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-top-4 fade-in duration-300">
-          <div className={`px-5 py-3 rounded-full flex items-center gap-3 shadow-2xl border ${
-            toast.type === 'success' ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-400' : 'bg-rose-950/90 border-rose-500/50 text-rose-400'
-          }`}>
-            {toast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-            <span className="font-bold text-sm tracking-wide text-white">{toast.message}</span>
-          </div>
-        </div>
-      )}
+     
 
       <div className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800 p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between z-10 shadow-sm shrink-0 gap-4">
         <div className="flex items-center gap-4">
