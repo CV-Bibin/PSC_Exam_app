@@ -134,7 +134,10 @@ const SlideRenderer = ({
         </div>
       );
 
-    case 'formula':
+   case 'formula': {
+      // 🚀 AUTO-ESCAPE FIX: Replaces raw '%' with '\%' so LaTeX doesn't treat it as a hidden comment!
+      const safeEquation = (data.equation || '').replace(/\\?%/g, '\\%');
+
       return (
         <div className="space-y-6">
           <ImageBlock />
@@ -142,7 +145,8 @@ const SlideRenderer = ({
             <div className="flex-1 w-full text-center bg-slate-900 py-8 px-4 rounded-3xl border border-amber-500/20 shadow-inner relative overflow-hidden flex flex-col justify-center min-h-[150px]">
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent opacity-50"></div>
               <div className="text-amber-400 overflow-x-auto custom-scrollbar w-full text-sm sm:text-base lg:text-lg px-2">
-                <BlockMath math={data.equation || ''} />
+                {/* 🚀 Render using the new safe equation */}
+                <BlockMath math={safeEquation} />
               </div>
             </div>
             <div className="flex-1 w-full space-y-4">
@@ -160,7 +164,7 @@ const SlideRenderer = ({
           {data.explanation && <p className="text-slate-300 text-base md:text-lg text-center mt-6 italic px-4">{data.explanation}</p>}
         </div>
       );
-
+    }
     case 'takeaways':
       return (
         <div className="space-y-6">

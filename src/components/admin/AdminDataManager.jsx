@@ -6,22 +6,23 @@ import toast from 'react-hot-toast';
 
 export default function AdminDataManager() {
   const [activeTab, setActiveTab] = useState('tasks');
-  
-  const [courses, setCourses] = useState([]); 
+
+  const [courses, setCourses] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [exams, setExams] = useState([]);
   const [liveExams, setLiveExams] = useState([]);
-  
+
   const [studentStats, setStudentStats] = useState([]);
-  const [selectedStudent, setSelectedStudent] = useState(null); 
+  const [selectedStudent, setSelectedStudent] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   const [loading, setLoading] = useState(true);
 
+  const [editModalTab, setEditModalTab] = useState('quizzes');
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
   const [editModal, setEditModal] = useState({ isOpen: false, item: null, collectionName: '' });
   const [saveStatus, setSaveStatus] = useState('');
-  
+
   // 🚀 NEW: State for expanding mini slide views
   const [expandedTaskId, setExpandedTaskId] = useState(null);
 
@@ -43,15 +44,15 @@ export default function AdminDataManager() {
       // 🚀 UPGRADED: Fetch accurate user data directly from the newly synced 'users' collection
       const usersSnap = await getDocs(collection(db, 'users'));
       const statsArray = [];
-      
+
       usersSnap.docs.forEach(doc => {
         const data = doc.data();
         const globalScores = data.globalScores || [];
         const completedDays = data.completedDays || [];
-        
+
         const totalScore = globalScores.reduce((sum, res) => sum + (res.score || 0), 0);
         const totalQuestions = globalScores.reduce((sum, res) => sum + (res.total || 0), 0);
-        
+
         // Find latest activity date from their exam history
         let latestDate = data.createdAt;
         if (globalScores.length > 0) {
@@ -94,7 +95,7 @@ export default function AdminDataManager() {
         setConfirmModal({ isOpen: false });
         try {
           await deleteDoc(doc(db, collectionName, id));
-          fetchData(); 
+          fetchData();
         } catch (error) {
           toast.error("Error deleting: " + error.message);
         }
@@ -115,7 +116,7 @@ export default function AdminDataManager() {
           snap.docs.forEach(d => batch.delete(d.ref));
           await batch.commit();
           fetchData();
-        toast.success(`Successfully purged ${collectionName}.`);
+          toast.success(`Successfully purged ${collectionName}.`);
         } catch (error) {
           toast.error("Error executing purge: " + error.message);
         }
@@ -130,7 +131,7 @@ export default function AdminDataManager() {
 
   const handleUpdateAnswer = (questionIndex, newAnswer, type = 'mcq') => {
     const updatedItem = { ...editModal.item };
-    
+
     if (editModal.collectionName === 'daily_tasks') {
       if (type === 'special_quizzes') updatedItem.curriculumData.special_quizzes[questionIndex].correct_answer = newAnswer;
       if (type === 'quizzes') updatedItem.curriculumData.quizzes[questionIndex].correct_answer = newAnswer;
@@ -146,21 +147,63 @@ export default function AdminDataManager() {
         if (type === 'trap') updatedItem.questions[type][questionIndex].is_true = (newAnswer === 'true');
       }
     }
-    
+
     setEditModal({ ...editModal, item: updatedItem });
   };
 
-const handleSaveEdits = async () => {
+  const handleUpdateSlide = (slideIndex, field, newValue) => {
+    const updatedItem = { ...editModal.item };
+    updatedItem.curriculumData.study_material[slideIndex][field] = newValue;
+    setEditModal({ ...editModal, item: updatedItem });
+  };
+
+  const handleUpdateSlideItem = (slideIndex, itemIndex, field, newValue) => {
+    const updatedItem = { ...editModal.item };
+    updatedItem.curriculumData.study_material[slideIndex].items[itemIndex][field] = newValue;
+    setEditModal({ ...editModal, item: updatedItem });
+  };
+
+  // 🚀 NEW: Handles deep nesting like curriculumData.study_material[idx].content_data.points[iIdx].desc
+  const handleUpdateNestedSlideItem = (slideIndex, objectKey, arrayKey, itemIndex, field, newValue) => {
+    const updatedItem = { ...editModal.item };
+    if (arrayKey) {
+      // It's in an array inside the object (like content_data.points)
+      updatedItem.curriculumData.study_material[slideIndex][objectKey][arrayKey][itemIndex][field] = newValue;
+    } else {
+      // It's directly inside the object (like content_data.explanation)
+      updatedItem.curriculumData.study_material[slideIndex][objectKey][field] = newValue;
+    }
+    setEditModal({ ...editModal, item: updatedItem });
+  };
+
+  // 🚀 ULTIMATE FIX: Safely updates ANY deeply nested property without mutating state
+  const handleDynamicUpdate = (slideIndex, pathArray, newValue) => {
+    setEditModal(prev => {
+      const updated = JSON.parse(JSON.stringify(prev)); // Deep clone prevents React state bugs
+      let current = updated.item.curriculumData.study_material[slideIndex];
+      
+      // Traverse down the exact path to the data
+      for (let i = 0; i < pathArray.length - 1; i++) {
+        current = current[pathArray[i]];
+      }
+      // Apply the new typed value
+      current[pathArray[pathArray.length - 1]] = newValue;
+      
+      return updated;
+    });
+  };
+
+  const handleSaveEdits = async () => {
     setSaveStatus('Saving...');
     try {
       const docRef = doc(db, editModal.collectionName, editModal.item.id);
-      
+
       if (editModal.collectionName === 'daily_tasks') {
         await updateDoc(docRef, { curriculumData: editModal.item.curriculumData });
       } else {
         await updateDoc(docRef, { questions: editModal.item.questions });
       }
-      
+
       setSaveStatus(''); // Clear the status text
       toast.success('Changes Saved Successfully!'); // 🚀 Use toast for success
       fetchData();
@@ -183,19 +226,19 @@ const handleSaveEdits = async () => {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-7xl mx-auto">
-      
+
       <div className="flex gap-3 border-b border-slate-800 pb-4 overflow-x-auto custom-scrollbar">
         <button onClick={() => setActiveTab('tasks')} className={`px-5 py-2.5 rounded-xl font-bold text-sm transition flex items-center gap-2 whitespace-nowrap ${activeTab === 'tasks' ? 'bg-brand-500 text-slate-950 shadow-lg' : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'}`}>
-          <Database size={18}/> Daily Missions
+          <Database size={18} /> Daily Missions
         </button>
         <button onClick={() => setActiveTab('exams')} className={`px-5 py-2.5 rounded-xl font-bold text-sm transition flex items-center gap-2 whitespace-nowrap ${activeTab === 'exams' ? 'bg-brand-500 text-slate-950 shadow-lg' : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'}`}>
-          <Target size={18}/> Global Exams
+          <Target size={18} /> Global Exams
         </button>
         <button onClick={() => setActiveTab('users')} className={`px-5 py-2.5 rounded-xl font-bold text-sm transition flex items-center gap-2 whitespace-nowrap ${activeTab === 'users' ? 'bg-brand-500 text-slate-950 shadow-lg' : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'}`}>
-          <Users size={18}/> User Progress
+          <Users size={18} /> User Progress
         </button>
         <button onClick={() => setActiveTab('advanced')} className={`px-5 py-2.5 rounded-xl font-bold text-sm transition flex items-center gap-2 whitespace-nowrap ${activeTab === 'advanced' ? 'bg-rose-600 text-white shadow-lg' : 'bg-slate-900 text-rose-500/70 hover:text-rose-400 hover:bg-rose-950/30'}`}>
-          <Settings size={18}/> Master Controls
+          <Settings size={18} /> Master Controls
         </button>
       </div>
 
@@ -204,7 +247,7 @@ const handleSaveEdits = async () => {
         <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
           <div className="p-5 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
             <div>
-              <h3 className="font-bold text-white flex items-center gap-2"><Database className="text-brand-400"/> Manage Daily Curriculums</h3>
+              <h3 className="font-bold text-white flex items-center gap-2"><Database className="text-brand-400" /> Manage Daily Curriculums</h3>
               <p className="text-xs text-slate-400 mt-1">Review, edit quizzes, or delete daily deployments.</p>
             </div>
           </div>
@@ -223,20 +266,20 @@ const handleSaveEdits = async () => {
                   </div>
                   <div className="flex items-center gap-2">
                     {/* 🚀 NEW: Mini Slide View Toggle */}
-                    <button 
+                    <button
                       onClick={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
                       className={`px-3 py-1.5 font-bold text-[11px] uppercase tracking-widest rounded-lg transition flex items-center gap-1.5 ${expandedTaskId === task.id ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-800 text-sky-400/70 hover:bg-slate-700 hover:text-sky-300'}`}
                     >
-                      {expandedTaskId === task.id ? <EyeOff size={14} /> : <Eye size={14} />} 
+                      {expandedTaskId === task.id ? <EyeOff size={14} /> : <Eye size={14} />}
                       {expandedTaskId === task.id ? 'Hide Slides' : 'View Slides'}
                     </button>
-                    <button 
+                    <button
                       onClick={() => handleOpenEdit(task, 'daily_tasks')}
                       className="px-3 py-1.5 bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 font-bold text-[11px] uppercase tracking-widest rounded-lg transition flex items-center gap-1.5"
                     >
                       <Edit3 size={14} /> Edit Quizzes
                     </button>
-                    <button 
+                    <button
                       onClick={() => triggerDelete('daily_tasks', task.id, `Day ${task.dayNumber}: ${task.title}`)}
                       className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition"
                     >
@@ -283,7 +326,7 @@ const handleSaveEdits = async () => {
           {liveExams.length > 0 && (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
               <div className="p-5 border-b border-rose-500/30 bg-rose-950/10">
-                <h3 className="font-bold text-white flex items-center gap-2"><Radio className="text-rose-400 animate-pulse"/> Live Arena Competitions</h3>
+                <h3 className="font-bold text-white flex items-center gap-2"><Radio className="text-rose-400 animate-pulse" /> Live Arena Competitions</h3>
               </div>
               <div className="divide-y divide-slate-800/50">
                 {liveExams.map(exam => (
@@ -310,7 +353,7 @@ const handleSaveEdits = async () => {
 
           <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
             <div className="p-5 border-b border-slate-800 bg-slate-900/50">
-              <h3 className="font-bold text-white flex items-center gap-2"><Target className="text-sky-400"/> Manage Mocks & Grand Exams</h3>
+              <h3 className="font-bold text-white flex items-center gap-2"><Target className="text-sky-400" /> Manage Mocks & Grand Exams</h3>
             </div>
             <div className="divide-y divide-slate-800/50 max-h-[500px] overflow-y-auto custom-scrollbar">
               {exams.map(exam => (
@@ -345,9 +388,9 @@ const handleSaveEdits = async () => {
           <div className="flex flex-col sm:flex-row justify-between gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-              <input 
-                type="text" 
-                placeholder="Search by student email..." 
+              <input
+                type="text"
+                placeholder="Search by student email..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-800 text-white rounded-xl pl-12 pr-4 py-3 focus:border-brand-500 outline-none transition shadow-inner"
@@ -402,7 +445,7 @@ const handleSaveEdits = async () => {
                           </div>
                         </td>
                         <td className="p-4 text-right">
-                          <button 
+                          <button
                             onClick={() => setSelectedStudent(student)}
                             className="px-4 py-2 bg-slate-800 hover:bg-brand-500 hover:text-slate-950 text-slate-300 rounded-lg text-xs font-bold transition shadow-sm"
                           >
@@ -424,7 +467,7 @@ const handleSaveEdits = async () => {
         <div className="space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
             <div className="p-5 border-b border-slate-800 bg-slate-950/50">
-              <h3 className="font-bold text-white flex items-center gap-2"><BookOpen className="text-sky-400"/> Syllabus & Course Management</h3>
+              <h3 className="font-bold text-white flex items-center gap-2"><BookOpen className="text-sky-400" /> Syllabus & Course Management</h3>
               <p className="text-xs text-slate-400 mt-1">Manage core curricula structures seeded into the database.</p>
             </div>
             <div className="divide-y divide-slate-800/50">
@@ -434,7 +477,7 @@ const handleSaveEdits = async () => {
                     <h4 className="font-bold text-slate-200 text-lg">{course.title || course.id}</h4>
                     <p className="text-xs text-slate-500 mt-1">{course.modules?.length || 0} Modules Registered • {course.totalMarks || 0} Total Marks</p>
                   </div>
-                  <button 
+                  <button
                     onClick={() => triggerDelete('courses', course.id, course.title || course.id)}
                     className="px-4 py-2 bg-slate-800 hover:bg-rose-500/20 hover:border-rose-500/50 text-slate-400 hover:text-rose-400 rounded-lg text-xs font-bold transition border border-transparent flex items-center gap-2"
                   >
@@ -452,15 +495,15 @@ const handleSaveEdits = async () => {
               <p className="text-xs text-rose-500/70 mt-1">Critical database wipe functions. Use with extreme caution.</p>
             </div>
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <button 
+              <button
                 onClick={() => triggerBatchDelete('exam_results', 'This will instantly wipe ALL student leaderboard data, exam results, and analytics history across the entire platform. PROCEED?')}
                 className="p-5 bg-slate-900 border border-rose-900/50 rounded-xl hover:bg-rose-950/40 transition text-left group"
               >
                 <h4 className="font-black text-rose-400 mb-1 group-hover:text-rose-300">Wipe All Leaderboards & Results</h4>
                 <p className="text-xs text-slate-500">Purges the `exam_results` collection completely.</p>
               </button>
-              
-              <button 
+
+              <button
                 onClick={() => triggerBatchDelete('daily_tasks', 'This will wipe EVERY single daily mission, syllabus curriculum, and AI-generated quiz from the platform. PROCEED?')}
                 className="p-5 bg-slate-900 border border-rose-900/50 rounded-xl hover:bg-rose-950/40 transition text-left group"
               >
@@ -492,8 +535,8 @@ const handleSaveEdits = async () => {
             </div>
 
             <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar bg-slate-950/50">
-              <h4 className="text-sm font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2"><Clock size={16}/> Exam History</h4>
-              
+              <h4 className="text-sm font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2"><Clock size={16} /> Exam History</h4>
+
               {selectedStudent.history.length === 0 ? (
                 <div className="text-center py-10 text-slate-500 font-bold">This student has not submitted any exams yet.</div>
               ) : (
@@ -525,53 +568,203 @@ const handleSaveEdits = async () => {
       )}
 
       {/* ========================================= */}
-      {/* UNIVERSAL EXAM EDIT MODAL                   */}
+      {/* UNIVERSAL EXAM & SLIDE EDIT MODAL         */}
       {/* ========================================= */}
       {editModal.isOpen && editModal.item && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-civil-card border border-civil-border rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-civil-card border border-civil-border rounded-2xl w-full max-w-5xl max-h-[95vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-900 shrink-0">
-              <h3 className="font-bold text-white flex items-center gap-2">
-                <Edit3 className="text-brand-400" size={18}/> Quick Edit: {editModal.item.title}
-              </h3>
-              <button onClick={() => setEditModal({ isOpen: false, item: null, collectionName: '' })} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"><X size={20}/></button>
+              <div className="flex items-center gap-6">
+                <h3 className="font-bold text-white flex items-center gap-2">
+                  <Edit3 className="text-brand-400" size={18} /> Quick Edit: {editModal.item.title}
+                </h3>
+
+                {/* 🚀 NEW: Tabs to switch between Slides and Quizzes */}
+                {editModal.collectionName === 'daily_tasks' && (
+                  <div className="flex bg-slate-950 border border-slate-800 rounded-lg overflow-hidden">
+                    <button
+                      onClick={() => setEditModalTab('slides')}
+                      className={`px-4 py-1.5 text-xs font-black uppercase tracking-widest transition ${editModalTab === 'slides' ? 'bg-sky-500/20 text-sky-400' : 'text-slate-500 hover:text-slate-300'}`}
+                    >
+                      Slides
+                    </button>
+                    <button
+                      onClick={() => setEditModalTab('quizzes')}
+                      className={`px-4 py-1.5 text-xs font-black uppercase tracking-widest transition ${editModalTab === 'quizzes' ? 'bg-brand-500/20 text-brand-400' : 'text-slate-500 hover:text-slate-300'}`}
+                    >
+                      Quizzes
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <button onClick={() => setEditModal({ isOpen: false, item: null, collectionName: '' })} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"><X size={20} /></button>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-950/50">
               {editModal.collectionName === 'daily_tasks' && (
                 <>
-                  {['quizzes', 'special_quizzes'].map(quizType => (
-                    editModal.item.curriculumData?.[quizType]?.length > 0 && (
-                      <div key={quizType} className="space-y-4">
-                        <h4 className="text-sm font-black text-brand-400 uppercase tracking-widest">{quizType.replace('_', ' ')}</h4>
-                        {editModal.item.curriculumData[quizType].map((q, idx) => (
-                          <div key={idx} className="bg-slate-900 p-4 rounded-xl border border-slate-800">
-                            <p className="font-semibold text-white text-sm mb-3">Q{idx + 1}: {q.question}</p>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {q.options?.map((opt, oIdx) => (
-                                <button
-                                  key={oIdx}
-                                  onClick={() => handleUpdateAnswer(idx, opt, quizType)}
-                                  className={`p-2 rounded-lg text-xs font-semibold text-left transition border ${opt === q.correct_answer ? 'bg-emerald-950/30 border-emerald-500/50 text-emerald-400 shadow-inner' : 'bg-slate-950 border-slate-800 text-slate-500 hover:bg-slate-800'}`}
-                                >
-                                  {opt}
-                                </button>
-                              ))}
+          {/* 🚀 NEW: THE UNIVERSAL SLIDE EDITOR */}
+                  {editModalTab === 'slides' && editModal.item.curriculumData?.study_material && (
+                    <div className="space-y-6">
+                      <h4 className="text-sm font-black text-sky-400 uppercase tracking-widest flex items-center gap-2">
+                        <BookOpen size={18} /> Study Material Slides
+                      </h4>
+                      
+                      {editModal.item.curriculumData.study_material.map((slide, idx) => {
+                        
+                        // 🚀 THE MAGIC: Recursively builds an editor UI for ANY schema the AI invents!
+                        const renderDynamicFields = (data, basePath = []) => {
+                          if (!data || typeof data !== 'object') return null;
+
+                          return Object.entries(data).map(([key, value]) => {
+                            // Ignore standard metadata at the root level so we don't duplicate inputs
+                            if (basePath.length === 0 && ['heading', 'title', 'type', 'badge', 'image_request', 'context_breadcrumb', 'id'].includes(key)) {
+                              return null;
+                            }
+
+                            // 1. Render simple text strings
+                            if (typeof value === 'string') {
+                              const isShort = key === 'term' || key === 'name' || key.includes('title');
+                              return (
+                                <div key={key} className="mt-4">
+                                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">{key.replace(/_/g, ' ')}</label>
+                                  {isShort ? (
+                                    <input 
+                                      type="text"
+                                      value={value}
+                                      onChange={(e) => handleDynamicUpdate(idx, [...basePath, key], e.target.value)}
+                                      className="w-full bg-slate-900 border border-slate-700 text-brand-400 font-bold text-sm rounded-lg px-3 py-2.5 focus:border-brand-500 outline-none transition"
+                                    />
+                                  ) : (
+                                    <textarea 
+                                      rows={3}
+                                      value={value}
+                                      onChange={(e) => handleDynamicUpdate(idx, [...basePath, key], e.target.value)}
+                                      className="w-full bg-slate-900 border border-slate-700 text-slate-300 text-sm rounded-lg px-3 py-2.5 focus:border-brand-500 outline-none transition custom-scrollbar leading-relaxed"
+                                    />
+                                  )}
+                                </div>
+                              );
+                            }
+
+                            // 2. Render complex Arrays (like Grids or Takeaway bullet points)
+                            if (Array.isArray(value)) {
+                              if (value.length === 0) return null;
+
+                              // Array of raw strings
+                              if (typeof value[0] === 'string') {
+                                return (
+                                  <div key={key} className="mt-4">
+                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">{key.replace(/_/g, ' ')} (List)</label>
+                                    <textarea 
+                                      rows={4}
+                                      value={value.join('\n\n')}
+                                      onChange={(e) => handleDynamicUpdate(idx, [...basePath, key], e.target.value.split('\n\n'))}
+                                      className="w-full bg-slate-900 border border-slate-700 text-slate-300 text-sm rounded-lg px-3 py-2 focus:border-brand-500 outline-none transition custom-scrollbar"
+                                    />
+                                  </div>
+                                );
+                              }
+
+                              // Array of Objects (The classic GRID or ITEMS format)
+                              if (typeof value[0] === 'object') {
+                                return (
+                                  <div key={key} className="mt-5 border-t border-slate-800/50 pt-4">
+                                    <label className="block text-xs font-black text-amber-400 uppercase tracking-widest mb-3">{key.replace(/_/g, ' ')}</label>
+                                    <div className="space-y-4">
+                                      {value.map((item, arrIdx) => (
+                                        <div key={arrIdx} className="bg-slate-950/60 p-4 rounded-xl border border-slate-700/50 relative ml-3 border-l-4 border-l-brand-500/50 shadow-inner">
+                                          <span className="absolute -left-[14px] -top-2 bg-slate-800 text-slate-400 w-6 h-6 flex items-center justify-center rounded-full text-[10px] font-black border border-slate-700 shadow-md">{arrIdx + 1}</span>
+                                          {renderDynamicFields(item, [...basePath, key, arrIdx])}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              }
+                            }
+
+                            // 3. Render nested generic objects (Like content_data)
+                            if (typeof value === 'object' && value !== null) {
+                              return (
+                                <div key={key} className="mt-5 p-4 border border-slate-800 rounded-xl bg-slate-950/30">
+                                  <label className="block text-xs font-black text-sky-400 uppercase tracking-widest mb-2">{key.replace(/_/g, ' ')}</label>
+                                  {renderDynamicFields(value, [...basePath, key])}
+                                </div>
+                              );
+                            }
+
+                            return null;
+                          });
+                        };
+
+                        return (
+                          <div key={idx} className="bg-slate-900 p-5 rounded-xl border border-slate-800 space-y-4 shadow-sm">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-black uppercase tracking-widest bg-sky-950 text-sky-400 px-2 py-1 rounded border border-sky-900/50 shadow-inner">
+                                Slide {idx + 1} - {slide.type || 'Unknown'}
+                              </span>
+                            </div>
+                            
+                            {/* Always pin the Heading natively to the top */}
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Heading</label>
+                              <input 
+                                type="text"
+                                value={slide.heading || slide.title || ''}
+                                onChange={(e) => handleUpdateSlide(idx, slide.heading !== undefined ? 'heading' : 'title', e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-700 text-white font-bold text-sm rounded-lg px-3 py-2.5 focus:border-brand-500 outline-none transition shadow-inner"
+                              />
+                            </div>
+                            
+                            {/* Let the Universal Renderer handle every other field */}
+                            <div className="pt-2">
+                              {renderDynamicFields(slide)}
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    )
-                  ))}
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* 🚀 EXISTING: QUIZ EDITOR TAB */}
+                  {editModalTab === 'quizzes' && (
+                    <div className="space-y-6">
+                      {['quizzes', 'special_quizzes'].map(quizType => (
+                        editModal.item.curriculumData?.[quizType]?.length > 0 && (
+                          <div key={quizType} className="space-y-4">
+                            <h4 className="text-sm font-black text-brand-400 uppercase tracking-widest">{quizType.replace('_', ' ')}</h4>
+                            {editModal.item.curriculumData[quizType].map((q, idx) => (
+                              <div key={idx} className="bg-slate-900 p-4 rounded-xl border border-slate-800">
+                                <p className="font-semibold text-white text-sm mb-3">Q{idx + 1}: {q.question}</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  {q.options?.map((opt, oIdx) => (
+                                    <button
+                                      key={oIdx}
+                                      onClick={() => handleUpdateAnswer(idx, opt, quizType)}
+                                      className={`p-2 rounded-lg text-xs font-semibold text-left transition border ${opt === q.correct_answer ? 'bg-emerald-950/30 border-emerald-500/50 text-emerald-400 shadow-inner' : 'bg-slate-950 border-slate-800 text-slate-500 hover:bg-slate-800'}`}
+                                    >
+                                      {opt}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
 
+              {/* 🚀 EXISTING: WEEKLY/LIVE MOCK EDITOR */}
               {['weekly_mocks', 'live_quizzes'].includes(editModal.collectionName) && editModal.item.questions && (
                 <div className="space-y-4">
-                  {/* 🚀 FIXED: Renders perfectly whether it's a flat array or an object */}
                   {Array.isArray(editModal.item.questions) ? (
                     <>
-                      <h4 className="text-sm font-black text-brand-400 uppercase tracking-widest flex items-center gap-2"><Database size={16}/> Assessment Questions</h4>
+                      <h4 className="text-sm font-black text-brand-400 uppercase tracking-widest flex items-center gap-2"><Database size={16} /> Assessment Questions</h4>
                       {editModal.item.questions.map((q, idx) => (
                         <div key={idx} className="bg-slate-900 p-4 rounded-xl border border-slate-800">
                           <p className="font-semibold text-white text-sm mb-3">Q{idx + 1}: {q.question || q.statement}</p>
@@ -593,7 +786,7 @@ const handleSaveEdits = async () => {
                     <>
                       {editModal.item.questions.mcq?.length > 0 && (
                         <div className="space-y-4">
-                          <h4 className="text-sm font-black text-brand-400 uppercase tracking-widest flex items-center gap-2"><Database size={16}/> MCQs</h4>
+                          <h4 className="text-sm font-black text-brand-400 uppercase tracking-widest flex items-center gap-2"><Database size={16} /> MCQs</h4>
                           {editModal.item.questions.mcq.map((q, idx) => (
                             <div key={idx} className="bg-slate-900 p-4 rounded-xl border border-slate-800">
                               <p className="font-semibold text-white text-sm mb-3">Q{idx + 1}: {q.question}</p>
@@ -615,7 +808,7 @@ const handleSaveEdits = async () => {
 
                       {editModal.item.questions.trap?.length > 0 && (
                         <div className="space-y-4 mt-8">
-                          <h4 className="text-sm font-black text-rose-400 uppercase tracking-widest flex items-center gap-2"><ShieldAlert size={16}/> Spot the Trap</h4>
+                          <h4 className="text-sm font-black text-rose-400 uppercase tracking-widest flex items-center gap-2"><ShieldAlert size={16} /> Spot the Trap</h4>
                           {editModal.item.questions.trap.map((q, idx) => (
                             <div key={idx} className="bg-slate-900 p-4 rounded-xl border border-slate-800">
                               <p className="font-semibold text-white text-sm mb-3">"{q.statement}"</p>
@@ -636,7 +829,7 @@ const handleSaveEdits = async () => {
               <span className={`text-sm font-bold ${saveStatus.includes('Error') ? 'text-rose-500' : 'text-emerald-400'}`}>{saveStatus}</span>
               <div className="flex gap-3">
                 <button onClick={() => setEditModal({ isOpen: false, item: null, collectionName: '' })} className="px-4 py-2 text-slate-400 hover:text-white font-bold text-sm transition">Cancel</button>
-                <button onClick={handleSaveEdits} className="px-6 py-2 bg-brand-500 hover:bg-brand-400 text-slate-950 font-bold text-sm rounded-xl shadow-lg transition flex items-center gap-2"><Save size={16}/> Save Updates</button>
+                <button onClick={handleSaveEdits} className="px-6 py-2 bg-brand-500 hover:bg-brand-400 text-slate-950 font-bold text-sm rounded-xl shadow-lg transition flex items-center gap-2"><Save size={16} /> Save Updates</button>
               </div>
             </div>
           </div>
@@ -656,7 +849,7 @@ const handleSaveEdits = async () => {
             <p className="text-slate-300 text-sm mb-6 leading-relaxed">{confirmModal.message}</p>
             <div className="flex justify-end gap-3">
               <button onClick={() => setConfirmModal({ isOpen: false })} className="px-5 py-2.5 text-slate-400 hover:text-white hover:bg-slate-800 font-bold text-sm rounded-xl transition">Cancel</button>
-              <button onClick={confirmModal.onConfirm} className="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-sm rounded-xl shadow-lg transition flex items-center gap-2"><Trash2 size={16}/> Confirm Action</button>
+              <button onClick={confirmModal.onConfirm} className="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-sm rounded-xl shadow-lg transition flex items-center gap-2"><Trash2 size={16} /> Confirm Action</button>
             </div>
           </div>
         </div>
