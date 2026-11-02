@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db } from '../services/firebase';
 import { collection, getDocs } from 'firebase/firestore';
-import { Target, Layers, ShieldAlert, Gamepad2, Play, BookOpen, ArrowLeft, Bolt, CheckCircle2, RotateCcw, Unlock, Lock } from 'lucide-react';
+import { Target, Layers, ShieldAlert, Gamepad2, Play, BookOpen, ArrowLeft, Bolt, CheckCircle2, RotateCcw, Unlock, Lock, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
 import LearningEngine from '../components/LearningEngine'; 
 import GameEngine from '../components/GameEngine'; 
 import { useAuth } from '../context/AuthContext';
@@ -19,6 +19,20 @@ export default function DailySequence() {
   const [gameStarted, setGameStarted] = useState(false);
   const [completedDrills, setCompletedDrills] = useState([]);
   const [completedDays, setCompletedDays] = useState([]);
+  // 🚀 PAGINATION STATES
+  const itemsPerPage = 10;
+  const [currentPage, setCurrentPage] = useState(0);
+
+  // Auto-sync the visible page to always show the active mission
+  useEffect(() => {
+    if (mission) {
+      const pageIndex = Math.floor((mission.dayNumber - 1) / itemsPerPage);
+      setCurrentPage(pageIndex);
+    }
+  }, [mission]);
+
+  const totalPages = Math.ceil(allMissions.length / itemsPerPage);
+  const visibleMissions = allMissions.slice(currentPage * itemsPerPage, (currentPage + 1) * itemsPerPage);
 
   // 🚀 FIXED 1: Only fetch from Firebase ONCE to save reads and improve speed!
   // 🚀 FIXED 1: Only fetch from Firebase ONCE to save reads and improve speed!
@@ -229,31 +243,59 @@ const handleUnlockNextDay = async () => { // 🚀 Added 'async'
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       
-      <div className="flex gap-3 overflow-x-auto custom-scrollbar pb-2 pt-1 px-1">
-        {allMissions.map((m) => {
-          const isLocked = m.dayNumber > highestUnlockedDay;
-          const isActive = m.dayNumber === mission.dayNumber;
-          const isDone = completedDays.includes(m.dayNumber);
-
-          return (
+      {/* 🚀 UPGRADED PAGINATED TIMELINE */}
+      <div className="flex flex-col gap-3 mb-2 animate-in slide-in-from-top-4">
+        <div className="flex items-center justify-between px-2 border-b border-slate-800/50 pb-2">
+          <span className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+            <CalendarDays size={14} /> 
+            Timeline: Days {currentPage * itemsPerPage + 1} - {Math.min((currentPage + 1) * itemsPerPage, allMissions.length)}
+          </span>
+          <div className="flex items-center gap-2">
             <button 
-              key={m.dayNumber}
-              onClick={() => !isLocked && loadMissionState(m)}
-              disabled={isLocked}
-              title={isLocked ? "Complete previous days to unlock" : "Available Mission"}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl whitespace-nowrap transition-all border-2 font-bold text-sm select-none shrink-0 ${
-                isActive ? 'bg-brand-500 border-brand-500 text-slate-950 shadow-[0_0_15px_rgba(245,158,11,0.3)]' :
-                isDone ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/50 cursor-pointer' :
-                isLocked ? 'bg-slate-900/40 border-slate-800/50 text-slate-600 border-dashed cursor-not-allowed opacity-75' :
-                'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500 cursor-pointer'
-              }`}
+              onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+              disabled={currentPage === 0}
+              className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-400 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-brand-500 hover:text-slate-950 transition shadow-sm"
             >
-              {isLocked && <Lock size={14} className="text-slate-500" />}
-              Day {m.dayNumber}
-              {isDone && <CheckCircle2 size={14} className={isActive ? "text-slate-950" : "text-emerald-500"} />}
+              <ChevronLeft size={16} />
             </button>
-          );
-        })}
+            <button 
+              onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+              disabled={currentPage === totalPages - 1}
+              className="p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-400 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-brand-500 hover:text-slate-950 transition shadow-sm"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 pt-1 px-1">
+          {visibleMissions.map((m) => {
+            const isLocked = m.dayNumber > highestUnlockedDay;
+            const isActive = m.dayNumber === mission.dayNumber;
+            const isDone = completedDays.includes(m.dayNumber);
+
+            return (
+              <button 
+                key={m.dayNumber}
+                onClick={() => !isLocked && loadMissionState(m)}
+                disabled={isLocked}
+                title={isLocked ? "Complete previous days to unlock" : "Available Mission"}
+                className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all border-2 font-bold text-sm select-none w-full ${
+                  isActive ? 'bg-brand-500 border-brand-500 text-slate-950 shadow-[0_0_15px_rgba(245,158,11,0.3)]' :
+                  isDone ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/50 cursor-pointer' :
+                  isLocked ? 'bg-slate-900/40 border-slate-800/50 text-slate-600 border-dashed cursor-not-allowed opacity-75' :
+                  'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500 cursor-pointer'
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  {isLocked && <Lock size={14} className="text-slate-500 shrink-0" />}
+                  Day {m.dayNumber}
+                </span>
+                {isDone && <CheckCircle2 size={16} className={isActive ? "text-slate-950 shrink-0" : "text-emerald-500 shrink-0"} />}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="bg-civil-card/70 backdrop-blur-md p-5 rounded-2xl border border-brand-500/20 bg-gradient-to-r from-slate-900 via-slate-900/90 to-brand-950/40 shrink-0 select-none">
