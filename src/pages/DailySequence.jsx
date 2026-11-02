@@ -8,7 +8,6 @@ import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 
 export default function DailySequence() {
-  // 🚀 1. PULL CLOUD DATA & UPDATER
   const { completedDays: cloudCompletedDays, profile, updateCloudProgress } = useAuth();
 
   const [allMissions, setAllMissions] = useState([]);
@@ -19,9 +18,10 @@ export default function DailySequence() {
   const [activeGame, setActiveGame] = useState(null);
   const [gameStarted, setGameStarted] = useState(false);
   const [completedDrills, setCompletedDrills] = useState([]);
-  
   const [completedDays, setCompletedDays] = useState([]);
 
+  // 🚀 FIXED 1: Only fetch from Firebase ONCE to save reads and improve speed!
+  // 🚀 FIXED 1: Only fetch from Firebase ONCE to save reads and improve speed!
   useEffect(() => {
     const fetchMissions = async () => {
       try {
@@ -31,12 +31,11 @@ export default function DailySequence() {
           tasks.sort((a, b) => a.dayNumber - b.dayNumber);
           setAllMissions(tasks);
           
-          // 🚀 2. READ FROM CLOUD INSTEAD OF LOCAL STORAGE
           const storedCompletedDays = cloudCompletedDays || [];
           setCompletedDays(storedCompletedDays);
 
           const nextPendingTask = tasks.find(task => !storedCompletedDays.includes(task.dayNumber)) || tasks[tasks.length - 1];
-          loadMissionState(nextPendingTask);
+          loadMissionState(nextPendingTask, storedCompletedDays);
         }
       } catch (error) {
         console.error("Error loading mission:", error);
@@ -44,10 +43,21 @@ export default function DailySequence() {
         setIsLoading(false);
       }
     };
-    fetchMissions();
-  }, [cloudCompletedDays]); // Re-run if cloud data updates
 
-  const loadMissionState = (selectedMission) => {
+    // Only run the fetch if we haven't loaded missions yet
+    if (allMissions.length === 0) {
+      fetchMissions();
+    }
+  }, []); // <-- Empty dependency array ensures this doesn't loop
+
+  // 🚀 Keep local state synced silently if cloud data updates in the background
+  useEffect(() => {
+    if (cloudCompletedDays && cloudCompletedDays.length > completedDays.length) {
+      setCompletedDays(cloudCompletedDays);
+    }
+  }, [cloudCompletedDays]);
+
+  const loadMissionState = (selectedMission, completedOverride = null) => {
     setMission(selectedMission);
     setGameStarted(false);
     setActiveGame(null);
@@ -56,7 +66,11 @@ export default function DailySequence() {
     
     const savedStep = parseInt(localStorage.getItem(`psc_mission_${selectedMission.dayNumber}_step`)) || 0;
     const totalChapters = selectedMission.curriculumData?.study_material?.length || 0;
-    setDrillsUnlocked(savedStep >= totalChapters && totalChapters > 0);
+    
+    const checkDays = completedOverride || completedDays || [];
+    const isAlreadyCompleted = checkDays.includes(selectedMission.dayNumber);
+    
+    setDrillsUnlocked(isAlreadyCompleted || (savedStep >= totalChapters && totalChapters > 0));
   };
 
   const handleMarkDrillComplete = (type) => {
@@ -70,41 +84,42 @@ export default function DailySequence() {
     });
   };
 
-  // 🚀 3. SYNC DAY COMPLETION TO FIREBASE
-  const handleUnlockNextDay = () => {
+const handleUnlockNextDay = async () => { // 🚀 Added 'async'
     let updatedDays = [...completedDays];
+    
     if (!completedDays.includes(mission.dayNumber)) {
       updatedDays = [...completedDays, mission.dayNumber];
       
-      // Instantly update the cloud! This makes the Dashboard update.
-      updateCloudProgress({
-         completedDays: updatedDays
-      });
+      try {
+        await updateCloudProgress({ completedDays: updatedDays });
+        // 🚀 FIXED 2: Instantly update local state so the top navbar immediately turns green!
+        setCompletedDays(updatedDays); 
+      } catch (error) {
+        toast.error("Failed to save progress. Check your connection.");
+        return; 
+      }
     }
     
-   const nextMission = allMissions.find(m => m.dayNumber === mission.dayNumber + 1);
+    const nextMission = allMissions.find(m => m.dayNumber === mission.dayNumber + 1);
     if (nextMission) {
-      loadMissionState(nextMission);
+      loadMissionState(nextMission, updatedDays);
     } else {
-      // 🚀 Replaced alert with toast
       toast.success("You have conquered all available missions! Check back tomorrow for updates.");
     }
   };
 
-  // 🚀 4. SYNC VAULT & HIGHLIGHTS TO FIREBASE
- // 🚀 4. SYNC VAULT & HIGHLIGHTS TO FIREBASE
   const handleMemorizeTopic = (slideHeading, slideContent) => {
     const existing = profile?.favMemorized || [];
     const newNote = { id: Date.now().toString(), heading: slideHeading, content: slideContent, type: 'line' };
     updateCloudProgress({ favMemorized: [newNote, ...existing] });
-    toast.success("Insight saved to your Memory Vault!"); // 🚀 Added toast
+    toast.success("Insight saved to your Memory Vault!");
   };
 
   const handleHighlightSentence = (sentenceText, sourceTopic) => {
     const existing = profile?.favHighlights || [];
     const newHighlight = { id: Date.now().toString(), text: sentenceText, sourceTopic: sourceTopic };
     updateCloudProgress({ favHighlights: [newHighlight, ...existing] });
-    toast.success("Highlight securely saved!"); // 🚀 Added toast
+    toast.success("Highlight securely saved!");
   };
 
   if (isLoading) return <div className="flex justify-center items-center h-[70vh]"><div className="animate-spin w-12 h-12 border-4 border-brand-500 border-t-transparent rounded-full"></div></div>;
@@ -112,11 +127,26 @@ export default function DailySequence() {
 
   const highestUnlockedDay = completedDays.length > 0 ? Math.max(...completedDays) + 1 : 1;
 
+  // 🚀 BULLETPROOF CHECKER
+  const mcqData = 
+    mission?.curriculumData?.games?.mcq || 
+    mission?.curriculumData?.games?.quizzes || 
+    mission?.curriculumData?.quizzes || 
+    mission?.curriculumData?.questions || 
+    mission?.curriculumData?.special_quizzes || 
+    [];
+
+  let flashcardData = mission?.curriculumData?.games?.flashcards || mission?.curriculumData?.flashcards || [];
+  const blankData = mission?.curriculumData?.games?.fill_in_the_blanks || [];
+  if (flashcardData.length === 0 && blankData.length > 0) flashcardData = blankData; 
+
+  const trapData = mission?.curriculumData?.games?.spot_the_trap || mission?.curriculumData?.spot_the_trap || [];
+
   const areAllAvailableDrillsDone = ['mcq', 'flashcards', 'trap'].every(drillType => {
     const hasDataForDrill = 
-      (drillType === 'mcq' && mission.curriculumData?.quizzes?.length > 0) ||
-      (drillType === 'flashcards' && mission.curriculumData?.games?.flashcards?.length > 0) ||
-      (drillType === 'trap' && mission.curriculumData?.games?.spot_the_trap?.length > 0);
+      (drillType === 'mcq' && mcqData.length > 0) ||
+      (drillType === 'flashcards' && flashcardData.length > 0) ||
+      (drillType === 'trap' && trapData.length > 0);
     
     return !hasDataForDrill || completedDrills.includes(drillType);
   });
@@ -160,6 +190,7 @@ export default function DailySequence() {
               onExit={() => { setActiveGame(null); setGameStarted(false); }}
               onMarkComplete={handleMarkDrillComplete}
               isExamMode={false}
+              dayNumber={mission.dayNumber}
             />
           )}
         </div>
@@ -169,9 +200,9 @@ export default function DailySequence() {
 
   const DrillButton = ({ type, icon: Icon, title, desc, colorClass }) => {
     const hasData = 
-      (type === 'mcq' && mission.curriculumData?.quizzes?.length > 0) ||
-      (type === 'flashcards' && mission.curriculumData?.games?.flashcards?.length > 0) ||
-      (type === 'trap' && mission.curriculumData?.games?.spot_the_trap?.length > 0);
+      (type === 'mcq' && mcqData.length > 0) ||
+      (type === 'flashcards' && flashcardData.length > 0) ||
+      (type === 'trap' && trapData.length > 0);
       
     if (!hasData) return null;
 
@@ -263,7 +294,7 @@ export default function DailySequence() {
                 <DrillButton type="flashcards" icon={Layers} title="Memory Vault" desc="Rapid-fire active recall." colorClass="text-sky-400" />
                 <DrillButton type="trap" icon={ShieldAlert} title="Spot the Trap" desc="Identify tricky PSC statements." colorClass="text-amber-400" />
                 
-                {(!mission.curriculumData?.quizzes?.length && !mission.curriculumData?.games?.flashcards?.length && !mission.curriculumData?.games?.spot_the_trap?.length) && (
+                {(!mcqData.length && !flashcardData.length && !trapData.length) && (
                   <p className="text-sm text-slate-500 font-semibold text-center py-4 border border-dashed border-slate-700 rounded-xl">No active recall drills generated for this specific module.</p>
                 )}
               </div>

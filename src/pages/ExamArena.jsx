@@ -29,7 +29,8 @@ export default function ExamArena() {
   const [activeFilter, setActiveFilter] = useState('all');
 
   // Student Progress & Time Constants
-  const completedSlides = JSON.parse(localStorage.getItem('psc_completed_days') || '[]').map(Number);
+  // 🚀 FIXED: Read directly from Firebase Context instead of resetting local storage
+  const completedSlides = completedDays || [];
   const isSunday = new Date().getDay() === 0;
   const isFirstOfMonth = new Date().getDate() === 1;
 
@@ -61,6 +62,7 @@ export default function ExamArena() {
   }, []);
 
  // 🚀 DYNAMIC EXAM GENERATOR ENGINE
+  // 🚀 DYNAMIC EXAM GENERATOR ENGINE
   const generatedExams = useMemo(() => {
     const exams = [];
     const completedTasks = dailyTasks.filter(t => completedSlides.includes(Number(t.dayNumber)));
@@ -68,9 +70,19 @@ export default function ExamArena() {
     // Find the furthest slide the student has reached to determine unlocks
     const highestCompletedSlide = completedSlides.length > 0 ? Math.max(...completedSlides) : 0;
     
-    // 1. DAILY QUIZZES (Unchanged)
+    // Helper function to extract questions with strictly enforced priority
+    const extractQuestions = (task) => {
+      return task.curriculumData?.games?.mcq || 
+             task.curriculumData?.games?.quizzes || 
+             task.curriculumData?.quizzes || 
+             task.curriculumData?.questions || 
+             task.curriculumData?.special_quizzes || 
+             [];
+    };
+
+    // 1. DAILY QUIZZES
     completedTasks.forEach(task => {
-      const questions = task.curriculumData?.special_quizzes || task.curriculumData?.quizzes || [];
+      const questions = extractQuestions(task); // 🚀 Uses new priority helper
       if (questions.length > 0) {
         exams.push({
           id: `daily_${task.dayNumber}`,
@@ -92,7 +104,6 @@ export default function ExamArena() {
       const startDay = (i * 6) + 1;
       const endDay = (i + 1) * 6;
       
-      // Pull ONLY tasks that fall exactly within this week's boundary
       const weekTasks = dailyTasks.filter(t => {
         const day = Number(t.dayNumber);
         return day >= startDay && day <= endDay;
@@ -100,8 +111,7 @@ export default function ExamArena() {
 
       let weeklyQuestions = [];
       weekTasks.forEach(t => {
-        const qs = t.curriculumData?.special_quizzes || t.curriculumData?.quizzes || [];
-        weeklyQuestions.push(...qs);
+        weeklyQuestions.push(...extractQuestions(t)); // 🚀 Uses new priority helper
       });
 
       if (weeklyQuestions.length > 0) {
@@ -115,7 +125,7 @@ export default function ExamArena() {
             id: `weekly_w${i + 1}_part${j + 1}`,
             type: 'weekly',
             title: `Weekly Revision ${i + 1} ${totalSets > 1 ? `(Set ${j + 1})` : ''}`,
-            subtitle: `Strictly Slides ${startDay} to ${endDay}`, // Updates UI to show exact slides
+            subtitle: `Strictly Slides ${startDay} to ${endDay}`,
             questions: chunk,
             timeLimitMinutes: Math.ceil(chunk.length * 1.5),
             maxAttempts: 1
@@ -131,7 +141,6 @@ export default function ExamArena() {
       const startDay = (i * 26) + 1;
       const endDay = (i + 1) * 26;
 
-      // Pull ONLY tasks that fall exactly within this month's boundary
       const monthTasks = dailyTasks.filter(t => {
         const day = Number(t.dayNumber);
         return day >= startDay && day <= endDay;
@@ -139,8 +148,7 @@ export default function ExamArena() {
 
       let monthlyQuestions = [];
       monthTasks.forEach(t => {
-        const qs = t.curriculumData?.special_quizzes || t.curriculumData?.quizzes || [];
-        monthlyQuestions.push(...qs);
+        monthlyQuestions.push(...extractQuestions(t)); // 🚀 Uses new priority helper
       });
 
       if (monthlyQuestions.length > 0) {
@@ -151,7 +159,7 @@ export default function ExamArena() {
           id: `monthly_m${i + 1}`,
           type: 'monthly',
           title: `Monthly Mega-Exam ${i + 1}`,
-          subtitle: `Strictly Slides ${startDay} to ${endDay}`, // Updates UI to show exact slides
+          subtitle: `Strictly Slides ${startDay} to ${endDay}`, 
           questions: finalMonthlyQuestions,
           timeLimitMinutes: Math.ceil(finalMonthlyQuestions.length * 1.5),
           maxAttempts: 1
@@ -161,7 +169,6 @@ export default function ExamArena() {
     
     return exams.reverse(); 
   }, [dailyTasks, completedSlides]);
-
 
   // 🚀 EXAM STATUS & TIME LOCKS
 // 🚀 EXAM STATUS & TIME LOCKS

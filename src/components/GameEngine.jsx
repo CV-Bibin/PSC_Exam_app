@@ -41,19 +41,39 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
   const [isFlipped, setIsFlipped] = useState(false);
   const [viewedQuestions, setViewedQuestions] = useState([0]);
 
+  // 🚀 BULLETPROOF DATA EXTRACTION (Fixed Priority)
   let extractedMCQData = [];
+  
   if (Array.isArray(curriculumData)) {
     extractedMCQData = curriculumData;
-  } else if (curriculumData?.questions) {
-    extractedMCQData = curriculumData.questions;
-  } else if (curriculumData?.quizzes) {
-    extractedMCQData = curriculumData.quizzes;
+  } else {
+    // 🚀 PRIORITIZE standard daily drills FIRST. Special Quizzes act as an absolute last resort.
+    extractedMCQData = 
+      curriculumData?.games?.mcq || 
+      curriculumData?.games?.quizzes || 
+      curriculumData?.quizzes || 
+      curriculumData?.questions || 
+      curriculumData?.special_quizzes || 
+      [];
+  }
+
+  let extractedFlashcards = curriculumData?.games?.flashcards || curriculumData?.flashcards || [];
+  let extractedTraps = curriculumData?.games?.spot_the_trap || curriculumData?.spot_the_trap || [];
+  let extractedBlanks = curriculumData?.games?.fill_in_the_blanks || [];
+
+  // 🚀 AUTO-CONVERT: If the database generated "fill_in_the_blanks", convert them into Flashcards automatically!
+  if (extractedFlashcards.length === 0 && extractedBlanks.length > 0) {
+    extractedFlashcards = extractedBlanks.map(item => ({
+      front: item.sentence ? item.sentence.replace('___', '...') : "Fill in the blank:",
+      back: item.answer || "Answer missing",
+      hint: item.hint || ""
+    }));
   }
 
   const gameData =
     gameType === 'mcq' ? extractedMCQData :
-      gameType === 'flashcards' ? (curriculumData?.games?.flashcards || []) :
-        gameType === 'trap' ? (curriculumData?.games?.spot_the_trap || []) : [];
+      gameType === 'flashcards' ? extractedFlashcards :
+        gameType === 'trap' ? extractedTraps : [];
 
   const isFinished = isExamMode ? isExamSubmitted : (currentIndex >= gameData.length);
 
@@ -104,7 +124,7 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
     return savedQs.some(item => item.question === (q.question || q.statement));
   };
 
- const handleSaveQuestion = (q) => {
+  const handleSaveQuestion = (q) => {
     const savedQs = profile?.favQuestions || [];
 
     if (!isQuestionSaved(q)) {
@@ -257,21 +277,26 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
     else { setShowResult(true); setCurrentIndex(gameData.length); }
   };
 
-  const handleExitClick = () => {
-    if (!isExamMode && onMarkComplete) onMarkComplete(gameType, sessionLog);
-
-    // 🚀 Sync daily slide completion to Firebase
-    if (dayNumber) {
-      const currentCompleted = completedDays || [];
-      if (!currentCompleted.includes(Number(dayNumber))) {
-        updateCloudProgress({
-          completedDays: [...currentCompleted, Number(dayNumber)]
-        });
+ const handleExitClick = () => {
+    if (!isExamMode) {
+      if (onMarkComplete) onMarkComplete(gameType, sessionLog);
+      
+      // 🚀 CRITICAL FIX: Ensure Daily Drill mistakes are safely synced to Firebase!
+      if (mistakes.length > 0) {
+        const existingMistakes = cloudMistakes || [];
+        const uniqueNew = mistakes.filter(m => !existingMistakes.some(em => em.question === m.question));
+        if (uniqueNew.length > 0) {
+          updateCloudProgress({ mistakes: [...existingMistakes, ...uniqueNew] });
+        }
       }
     }
 
-    if (onExit) onExit();
-    else navigate('/arena');
+    // Exit gracefully back to the DailySequence or ExamArena wrapper
+    if (onExit) {
+      onExit();
+    } else {
+      navigate('/arena');
+    }
   };
 
   if (isReviewMode) {
@@ -313,8 +338,8 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
                             onClick={() => handleSaveQuestion(q)}
                             disabled={isSaved}
                             className={`p-2 rounded-lg transition shrink-0 border ${isSaved
-                                ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 cursor-default'
-                                : 'bg-slate-950 text-slate-400 hover:text-amber-400 border-slate-800 hover:border-amber-500/50'
+                              ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 cursor-default'
+                              : 'bg-slate-950 text-slate-400 hover:text-amber-400 border-slate-800 hover:border-amber-500/50'
                               }`}
                             title={isSaved ? "Saved to Vault" : "Save Question to Vault"}
                           >
@@ -481,8 +506,8 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
                   onClick={() => handleSaveQuestion(currentItem)}
                   disabled={isSaved}
                   className={`p-1.5 rounded-lg border transition ${isSaved
-                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 cursor-default'
-                      : 'text-slate-400 hover:text-amber-400 bg-slate-950 border-slate-800 hover:border-amber-500/50'
+                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/30 cursor-default'
+                    : 'text-slate-400 hover:text-amber-400 bg-slate-950 border-slate-800 hover:border-amber-500/50'
                     }`}
                   title={isSaved ? "Saved to Vault" : "Save Question to Vault"}
                 >
@@ -605,12 +630,22 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
 
   // --- FLASHCARDS LOGIC ---
   if (gameType === 'flashcards') {
-    const handleFlashcardResult = (success) => {
+  const handleFlashcardResult = (success) => {
       if (success) {
         setScore(prev => prev + 1);
         setSessionLog(prev => ({ ...prev, correct: [...prev.correct, currentItem] }));
       } else {
         setSessionLog(prev => ({ ...prev, incorrect: [...prev.incorrect, currentItem] }));
+        
+        // 🚀 FIXED: "Needs Practice" flashcards are now pushed to the Mistake Log!
+        setMistakes(prev => [...prev, {
+          type: 'flashcards',
+          question: currentItem.front,
+          correct_answer: currentItem.back,
+          explanation: currentItem.hint || "Review this flashcard concept.",
+          streak: 0,
+          dateAdded: new Date().toISOString()
+        }]);
       }
       setIsFlipped(false);
       setTimeout(() => handleNext(), 150);
