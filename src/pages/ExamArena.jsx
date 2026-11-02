@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 import {
   Swords, Trophy, Target, Clock, BrainCircuit, Play,
-  CheckCircle2, RotateCcw, Search, BarChart3, Radio, FileText, Filter, Lock, Eye, CalendarDays, Zap, ChevronDown
+  CheckCircle2, RotateCcw, Search, BarChart3, Radio, FileText, Filter, Lock, Eye, CalendarDays, Zap, ChevronDown, ChevronUp
 } from 'lucide-react';
 
 // ==========================================
@@ -244,7 +244,26 @@ export default function ExamArena() {
   ];
 
   // 🚀 THE SORTER: Splits "New" exams to the top, sends history/locked to the bottom
+  // 🚀 THE SORTER: Splits "New" exams to the top, sends history/locked to the bottom
+  const nowTime = new Date();
+  
+  // 1. Keep only active, uncompleted live exams for the top section
+  const activeLiveExams = liveExams.filter(exam => {
+    const endDate = new Date(exam.scheduledEndTime);
+    const status = getExamStatus(exam);
+    return endDate > nowTime && status.id !== 'locked';
+  });
+
+  // 2. Push expired or completed live exams to the history section
+  const historyLive = liveExams.filter(exam => {
+    const endDate = new Date(exam.scheduledEndTime);
+    const status = getExamStatus(exam);
+    return endDate <= nowTime || status.id === 'locked';
+  });
+
   const priorityExams = allFilteredExams.filter(exam => getExamStatus(exam).id === 'new');
+
+  
 
   const historyDynamic = filterExams(generatedExams).filter(exam => getExamStatus(exam).id !== 'new');
   const historyGrand = filterExams(grandMocks).filter(exam => getExamStatus(exam).id !== 'new');
@@ -377,14 +396,16 @@ const handleLaunchExam = (exam) => {
         </div>
       </div>
 
-      {/* 3. LIVE EVENTS (Always Top Priority) */}
-      {liveExams.length > 0 && activeFilter === 'all' && !searchQuery && (
+     {/* 3. LIVE EVENTS (Always Top Priority) */}
+      {/* 🚀 Changed to activeLiveExams here: */}
+      {activeLiveExams.length > 0 && activeFilter === 'all' && !searchQuery && (
         <div className="space-y-6">
           <h3 className="text-2xl font-black text-white flex items-center gap-3 border-b border-rose-500/30 pb-4 px-2">
             <Radio className="text-rose-500 animate-pulse" size={28} /> Live Competitions
           </h3>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {liveExams.map(exam => {
+            {/* 🚀 And changed to activeLiveExams here: */}
+            {activeLiveExams.map(exam => {
               const startDate = new Date(exam.scheduledStartTime);
               const endDate = new Date(exam.scheduledEndTime);
               const isPast = new Date() > endDate;
@@ -494,6 +515,7 @@ const handleLaunchExam = (exam) => {
         historyDynamic={historyDynamic}
         historyGrand={historyGrand}
         historyWeekly={historyWeekly}
+        historyLive={historyLive}
         getExamStatus={getExamStatus}
         handleLaunchExam={handleLaunchExam}
       />
@@ -504,63 +526,97 @@ const handleLaunchExam = (exam) => {
 
 
 // ==========================================
-// 🚀 COMPONENT 2: MISSION HISTORY (BOTTOM SECTION WITH PAGINATION)
+// 🚀 NEW: ACCORDION WRAPPER FOR HISTORY
 // ==========================================
-function MissionHistory({ historyDynamic, historyGrand, historyWeekly, getExamStatus, handleLaunchExam }) {
-  // 🚀 Added Pagination State for Daily Quizzes
-  const [visibleDailyCount, setVisibleDailyCount] = useState(12);
-  const dailyHistoryList = historyDynamic.filter(e => e.type === 'daily');
+function CollapsibleSection({ title, icon: Icon, children, count, defaultOpen = false }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <div className="mt-16 pt-12 border-t border-slate-800 space-y-12">
+    <div className="bg-slate-900/40 border border-slate-800/60 rounded-3xl overflow-hidden transition-all duration-300">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between p-5 hover:bg-slate-800/50 transition group outline-none"
+      >
+        <div className="flex items-center gap-3 text-lg md:text-xl font-bold text-slate-400 group-hover:text-white transition-colors">
+          <Icon size={24} className="text-slate-500 group-hover:text-brand-400 transition-colors" /> 
+          {title} 
+          {count !== undefined && count > 0 && (
+            <span className="text-xs bg-slate-800 border border-slate-700 px-2.5 py-1 rounded-lg text-slate-400 ml-2 shadow-inner">
+              {count}
+            </span>
+          )}
+        </div>
+        <div className="p-2 rounded-xl bg-slate-950 border border-slate-800 group-hover:border-slate-600 transition shadow-sm">
+          {isOpen ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+        </div>
+      </button>
+      
+      {isOpen && (
+        <div className="p-6 pt-2 border-t border-slate-800/50 animate-in slide-in-from-top-2 fade-in duration-300">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ==========================================
+// 🚀 COMPONENT 2: MISSION HISTORY (COLLAPSIBLE)
+// ==========================================
+function MissionHistory({ historyDynamic, historyGrand, historyWeekly, historyLive, getExamStatus, handleLaunchExam }) {
+  const [visibleDailyCount, setVisibleDailyCount] = useState(12);
+  
+  const dailyHistoryList = historyDynamic.filter(e => e.type === 'daily');
+  const milestoneHistoryList = historyDynamic.filter(e => ['weekly', 'monthly'].includes(e.type));
+
+  return (
+    <div className="mt-16 pt-12 border-t border-slate-800 space-y-4">
       <div className="text-center mb-8">
         <h2 className="text-3xl font-black text-slate-400">Mission History & Standby</h2>
         <p className="text-slate-600 mt-2 font-medium">Completed assessments and time-locked future missions file here automatically.</p>
       </div>
 
+      {/* Past Live Competitions */}
+      {historyLive?.length > 0 && (
+        <CollapsibleSection title="Past Live Competitions" icon={Radio} count={historyLive.length} defaultOpen={false}>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {historyLive.map(exam => <HistoryCard key={exam.id} exam={exam} status={getExamStatus(exam)} onLaunch={() => handleLaunchExam(exam)} />)}
+          </div>
+        </CollapsibleSection>
+      )}
+
       {/* Milestone History */}
-      <div className="space-y-6">
-        <h3 className="text-xl font-bold text-slate-500 flex items-center gap-3 border-b border-slate-800/50 pb-3 px-2">
-          <CalendarDays size={20} /> Milestone History
-        </h3>
-        {historyDynamic.filter(e => ['weekly', 'monthly'].includes(e.type)).length === 0 ? (
+      <CollapsibleSection title="Milestone History" icon={CalendarDays} count={milestoneHistoryList.length} defaultOpen={false}>
+        {milestoneHistoryList.length === 0 ? (
           <p className="text-xs text-slate-600 italic px-2">No completed milestone missions.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {historyDynamic.filter(e => ['weekly', 'monthly'].includes(e.type)).map(exam => <HistoryCard key={exam.id} exam={exam} status={getExamStatus(exam)} onLaunch={() => handleLaunchExam(exam)} />)}
+            {milestoneHistoryList.map(exam => <HistoryCard key={exam.id} exam={exam} status={getExamStatus(exam)} onLaunch={() => handleLaunchExam(exam)} />)}
           </div>
         )}
-      </div>
+      </CollapsibleSection>
 
       {/* Grand Mock History */}
       {historyGrand.length > 0 && (
-        <div className="space-y-6">
-          <h3 className="text-xl font-bold text-slate-500 flex items-center gap-3 border-b border-slate-800/50 pb-3 px-2">
-            <Trophy size={20} /> Module Mastery History
-          </h3>
+        <CollapsibleSection title="Module Mastery History" icon={Trophy} count={historyGrand.length} defaultOpen={false}>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {historyGrand.map(exam => <HistoryCard key={exam.id} exam={exam} status={getExamStatus(exam)} onLaunch={() => handleLaunchExam(exam)} />)}
           </div>
-        </div>
+        </CollapsibleSection>
       )}
 
       {/* Global Simulation History */}
       {historyWeekly.length > 0 && (
-        <div className="space-y-6">
-          <h3 className="text-xl font-bold text-slate-500 flex items-center gap-3 border-b border-slate-800/50 pb-3 px-2">
-            <BrainCircuit size={20} /> Global Simulation History
-          </h3>
+        <CollapsibleSection title="Global Simulation History" icon={BrainCircuit} count={historyWeekly.length} defaultOpen={false}>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {historyWeekly.map(exam => <HistoryCard key={exam.id} exam={exam} status={getExamStatus(exam)} onLaunch={() => handleLaunchExam(exam)} />)}
           </div>
-        </div>
+        </CollapsibleSection>
       )}
 
-      {/* 🚀 Daily Slide History WITH PAGINATION */}
-      <div className="space-y-6">
-        <h3 className="text-xl font-bold text-slate-500 flex items-center gap-3 border-b border-slate-800/50 pb-3 px-2">
-          <Target size={20} /> Daily Slide History ({dailyHistoryList.length})
-        </h3>
+      {/* Daily Slide History WITH PAGINATION */}
+      <CollapsibleSection title="Daily Slide History" icon={Target} count={dailyHistoryList.length} defaultOpen={false}>
         {dailyHistoryList.length === 0 ? (
           <p className="text-xs text-slate-600 italic px-2">No completed daily quizzes.</p>
         ) : (
@@ -588,7 +644,7 @@ function MissionHistory({ historyDynamic, historyGrand, historyWeekly, getExamSt
 
             {/* Load More Button */}
             {visibleDailyCount < dailyHistoryList.length && (
-              <div className="flex justify-center pt-4">
+              <div className="flex justify-center pt-6">
                 <button
                   onClick={() => setVisibleDailyCount(prev => prev + 12)}
                   className="px-6 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-bold text-xs uppercase tracking-widest rounded-xl transition flex items-center gap-2"
@@ -599,7 +655,7 @@ function MissionHistory({ historyDynamic, historyGrand, historyWeekly, getExamSt
             )}
           </>
         )}
-      </div>
+      </CollapsibleSection>
     </div>
   );
 }
