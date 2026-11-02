@@ -20,7 +20,7 @@ export default function DailySequence() {
   const [completedDrills, setCompletedDrills] = useState([]);
   const [completedDays, setCompletedDays] = useState([]);
   // 🚀 PAGINATION STATES
-  const itemsPerPage = 10;
+  const itemsPerPage = 20;
   const [currentPage, setCurrentPage] = useState(0);
 
   // Auto-sync the visible page to always show the active mission
@@ -268,7 +268,7 @@ const handleUnlockNextDay = async () => { // 🚀 Added 'async'
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 pt-1 px-1">
+     <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-10 gap-2 pt-1 px-1">
           {visibleMissions.map((m) => {
             const isLocked = m.dayNumber > highestUnlockedDay;
             const isActive = m.dayNumber === mission.dayNumber;
@@ -280,18 +280,18 @@ const handleUnlockNextDay = async () => { // 🚀 Added 'async'
                 onClick={() => !isLocked && loadMissionState(m)}
                 disabled={isLocked}
                 title={isLocked ? "Complete previous days to unlock" : "Available Mission"}
-                className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all border-2 font-bold text-sm select-none w-full ${
+                className={`flex items-center justify-between px-3 py-2 rounded-xl transition-all border-2 font-bold text-xs select-none w-full ${
                   isActive ? 'bg-brand-500 border-brand-500 text-slate-950 shadow-[0_0_15px_rgba(245,158,11,0.3)]' :
                   isDone ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-400 hover:bg-emerald-900/50 cursor-pointer' :
                   isLocked ? 'bg-slate-900/40 border-slate-800/50 text-slate-600 border-dashed cursor-not-allowed opacity-75' :
                   'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500 cursor-pointer'
                 }`}
               >
-                <span className="flex items-center gap-2">
-                  {isLocked && <Lock size={14} className="text-slate-500 shrink-0" />}
+                <span className="flex items-center gap-1.5 whitespace-nowrap">
+                  {isLocked && <Lock size={12} className="text-slate-500 shrink-0" />}
                   Day {m.dayNumber}
                 </span>
-                {isDone && <CheckCircle2 size={16} className={isActive ? "text-slate-950 shrink-0" : "text-emerald-500 shrink-0"} />}
+                {isDone && <CheckCircle2 size={14} className={isActive ? "text-slate-950 shrink-0" : "text-emerald-500 shrink-0"} />}
               </button>
             );
           })}
