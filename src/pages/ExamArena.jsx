@@ -71,12 +71,15 @@ export default function ExamArena() {
     const highestCompletedSlide = completedSlides.length > 0 ? Math.max(...completedSlides) : 0;
     
     // Helper function to extract questions with strictly enforced priority
+   // Helper function to extract questions with strictly enforced priority for EXAMS
     const extractQuestions = (task) => {
-      return task.curriculumData?.games?.mcq || 
-             task.curriculumData?.games?.quizzes || 
+      // 🚀 EXAM ARENA FIX: Prioritize the large 'special_quizzes' pool FIRST!
+      // Only fall back to standard MCQs if no special quizzes exist.
+      return task.curriculumData?.special_quizzes || 
              task.curriculumData?.quizzes || 
+             task.curriculumData?.games?.mcq || 
+             task.curriculumData?.games?.quizzes || 
              task.curriculumData?.questions || 
-             task.curriculumData?.special_quizzes || 
              [];
     };
 
