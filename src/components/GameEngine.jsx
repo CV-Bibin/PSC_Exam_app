@@ -92,6 +92,21 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
   const isNegativeMarkingApplicable = curriculumData?.isGrandMock || examId.includes('monthly') || examId.includes('live') || examId.includes('grand');
   const PENALTY_SCORE = 0.33;
 
+  // 🚀 NEW: Instantly syncs a mistake to Firebase without waiting for the game to end
+  const syncMistakeToCloud = (newMistake) => {
+    const existingMistakes = cloudMistakes || [];
+    const mistakeText = newMistake.question || newMistake.statement;
+
+    // Prevent duplicates by checking both .question and .statement
+    const isDuplicate = existingMistakes.some(em => (em.question || em.statement) === mistakeText);
+    
+    if (!isDuplicate) {
+      updateCloudProgress({
+        mistakes: [...existingMistakes, newMistake]
+      });
+    }
+  };
+
   useEffect(() => {
     // 🚀 PREVENT RESULT SCREEN SKIP: If the user just submitted the exam, 
     // block Firebase from forcing the app straight into Review Mode.
@@ -278,17 +293,9 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
   };
 
  const handleExitClick = () => {
-    if (!isExamMode) {
-      if (onMarkComplete) onMarkComplete(gameType, sessionLog);
-      
-      // 🚀 CRITICAL FIX: Ensure Daily Drill mistakes are safely synced to Firebase!
-      if (mistakes.length > 0) {
-        const existingMistakes = cloudMistakes || [];
-        const uniqueNew = mistakes.filter(m => !existingMistakes.some(em => em.question === m.question));
-        if (uniqueNew.length > 0) {
-          updateCloudProgress({ mistakes: [...existingMistakes, ...uniqueNew] });
-        }
-      }
+    // Save the session log (correct/incorrect counts) if not in exam mode
+    if (!isExamMode && onMarkComplete) {
+      onMarkComplete(gameType, sessionLog);
     }
 
     // Exit gracefully back to the DailySequence or ExamArena wrapper
@@ -444,7 +451,7 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
 
   const currentItem = gameData[currentIndex];
 
-  if (gameType === 'mcq') {
+ if (gameType === 'mcq') {
     const handleOptionClick = (option) => {
       if (isExamMode) {
         // 🚀 Click again to unselect without needing a dedicated clear button
@@ -465,10 +472,21 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
           setSessionLog(prev => ({ ...prev, correct: [...prev.correct, currentItem] }));
         } else {
           setSessionLog(prev => ({ ...prev, incorrect: [...prev.incorrect, currentItem] }));
-          setMistakes(prev => [...prev, {
-            type: 'mcq', question: currentItem.question, options: currentItem.options || [],
-            correct_answer: targetAnswer, student_answer: option, explanation: currentItem.explanation, streak: 0
-          }]);
+          
+          // 🚀 INSTANT SYNC: Create the mistake object and push to Firebase immediately
+          const newMistake = {
+            type: 'mcq', 
+            question: currentItem.question, 
+            options: currentItem.options || [],
+            correct_answer: targetAnswer, 
+            student_answer: option, 
+            explanation: currentItem.explanation || "No detailed explanation recorded.", 
+            streak: 0,
+            dateAdded: new Date().toISOString()
+          };
+          
+          setMistakes(prev => [...prev, newMistake]);
+          syncMistakeToCloud(newMistake); 
         }
       }
     };
@@ -554,7 +572,7 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
     );
   }
 
-  // --- SPOT THE TRAP LOGIC ---
+ // --- SPOT THE TRAP LOGIC ---
   if (gameType === 'trap') {
     const handleTrapClick = (guess) => {
       if (showResult) return;
@@ -567,10 +585,19 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
         setSessionLog(prev => ({ ...prev, correct: [...prev.correct, currentItem] }));
       } else {
         setSessionLog(prev => ({ ...prev, incorrect: [...prev.incorrect, currentItem] }));
-        setMistakes(prev => [...prev, {
-          type: 'trap', statement: currentItem.statement,
-          is_true: currentItem.is_true, catch: currentItem.catch, streak: 0
-        }]);
+        
+        // 🚀 INSTANT SYNC: Create the mistake object and push to Firebase immediately
+        const newMistake = {
+          type: 'trap', 
+          statement: currentItem.statement,
+          is_true: currentItem.is_true, 
+          catch: currentItem.catch, 
+          streak: 0,
+          dateAdded: new Date().toISOString()
+        };
+        
+        setMistakes(prev => [...prev, newMistake]);
+        syncMistakeToCloud(newMistake); 
       }
     };
 
@@ -630,22 +657,25 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
 
   // --- FLASHCARDS LOGIC ---
   if (gameType === 'flashcards') {
-  const handleFlashcardResult = (success) => {
+    const handleFlashcardResult = (success) => {
       if (success) {
         setScore(prev => prev + 1);
         setSessionLog(prev => ({ ...prev, correct: [...prev.correct, currentItem] }));
       } else {
         setSessionLog(prev => ({ ...prev, incorrect: [...prev.incorrect, currentItem] }));
         
-        // 🚀 FIXED: "Needs Practice" flashcards are now pushed to the Mistake Log!
-        setMistakes(prev => [...prev, {
+        // 🚀 Create the mistake object
+        const newMistake = {
           type: 'flashcards',
           question: currentItem.front,
           correct_answer: currentItem.back,
           explanation: currentItem.hint || "Review this flashcard concept.",
           streak: 0,
           dateAdded: new Date().toISOString()
-        }]);
+        };
+        
+        setMistakes(prev => [...prev, newMistake]);
+        syncMistakeToCloud(newMistake); // 🚀 INSTANT CLOUD SYNC
       }
       setIsFlipped(false);
       setTimeout(() => handleNext(), 150);

@@ -75,10 +75,13 @@ export default function DailySequence() {
     setMission(selectedMission);
     setGameStarted(false);
     setActiveGame(null);
-    const savedDrills = JSON.parse(localStorage.getItem(`mission_${selectedMission.dayNumber}_drills`) || '[]');
+    
+    // 🚀 HYBRID: Pull drill progress from Firebase instead of local storage
+    const savedDrills = profile?.drillProgress?.[selectedMission.dayNumber] || [];
     setCompletedDrills(savedDrills);
     
-    const savedStep = parseInt(localStorage.getItem(`psc_mission_${selectedMission.dayNumber}_step`)) || 0;
+    // 🚀 HYBRID: Pull slide progress from Firebase (with local storage as fallback)
+    const savedStep = profile?.slideProgress?.[selectedMission.dayNumber] || parseInt(localStorage.getItem(`psc_mission_${selectedMission.dayNumber}_step`)) || 0;
     const totalChapters = selectedMission.curriculumData?.study_material?.length || 0;
     
     const checkDays = completedOverride || completedDays || [];
@@ -87,11 +90,20 @@ export default function DailySequence() {
     setDrillsUnlocked(isAlreadyCompleted || (savedStep >= totalChapters && totalChapters > 0));
   };
 
-  const handleMarkDrillComplete = (type) => {
+const handleMarkDrillComplete = (type) => {
     setCompletedDrills(prev => {
       if (!prev.includes(type)) {
         const updated = [...prev, type];
-        localStorage.setItem(`mission_${mission.dayNumber}_drills`, JSON.stringify(updated));
+        
+        // 🚀 HYBRID: Sync individual drill completions permanently to Firebase
+        const currentDrillProgress = profile?.drillProgress || {};
+        updateCloudProgress({
+          drillProgress: {
+            ...currentDrillProgress,
+            [mission.dayNumber]: updated
+          }
+        });
+        
         return updated;
       }
       return prev;

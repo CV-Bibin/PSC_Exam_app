@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { askAITutor } from '../services/gemini';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useAuth } from '../context/AuthContext';
+
 import {
   CheckCircle2, Zap, AlertOctagon, FastForward, Highlighter,
   BookmarkPlus, Bot, X, Bookmark, ChevronRight, ChevronLeft, BookOpen,
@@ -453,23 +455,33 @@ const SlideRenderer = ({
 };
 
 
+
 // --- COMPONENT 2: THE MAIN PARENT CONTAINER ---
 
 export default function LearningEngine({ mission, onComplete, onMemorize, onHighlight }) {
+  const { profile, updateCloudProgress } = useAuth(); // 🚀 Added Firebase hook
+
   const stepKey = `psc_mission_${mission?.dayNumber}_step`;
   const highlightsKey = `psc_mission_${mission?.dayNumber}_highlights`;
   const vaultKey = `psc_mission_${mission?.dayNumber}_vault`;
 
-  const [activeStep, setActiveStep] = useState(() => parseInt(localStorage.getItem(stepKey)) || 0);
-  const [highlights, setHighlights] = useState(() => JSON.parse(localStorage.getItem(highlightsKey) || '[]'));
-  const [savedVault, setSavedVault] = useState(() => JSON.parse(localStorage.getItem(vaultKey) || '[]'));
+  // 🚀 HYBRID: Prioritize Firebase for the active slide, fallback to localStorage
+  const [activeStep, setActiveStep] = useState(() => {
+    return profile?.slideProgress?.[mission?.dayNumber] || parseInt(localStorage.getItem(stepKey)) || 0;
+  });
 
+  // 🚀 HYBRID: Pull highlights from Firebase, fallback to local storage
+  const [highlights, setHighlights] = useState(() => {
+    return profile?.highlights?.[mission?.dayNumber] || JSON.parse(localStorage.getItem(highlightsKey) || '[]');
+  });
+
+  // 🚀 HYBRID: Pull saved vault/favorites from Firebase, fallback to local storage
+  const [savedVault, setSavedVault] = useState(() => {
+    return profile?.vault?.[mission?.dayNumber] || JSON.parse(localStorage.getItem(vaultKey) || '[]');
+  });
   const [selectionMenu, setSelectionMenu] = useState(null);
   const [aiModal, setAiModal] = useState({ isOpen: false, query: '', response: '', loading: false });
-
   const [quizSelections, setQuizSelections] = useState({});
-  
-  // 🚀 UPDATED: Match game state structure 
   const [matchGameState, setMatchGameState] = useState({ selectedLeft: null, userPairs: {}, isSubmitted: false, allCorrect: false });
 
   const chapters = mission?.curriculumData?.study_material || [];
@@ -480,6 +492,17 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
   useEffect(() => {
     if (isReadingFinished && chapters.length > 0) onComplete();
   }, [isReadingFinished, onComplete, chapters.length]);
+
+  // 🚀 NEW: Helper to seamlessly sync slide location to Firebase
+  const syncProgressToCloud = (step) => {
+    const currentProgress = profile?.slideProgress || {};
+    updateCloudProgress({
+      slideProgress: {
+        ...currentProgress,
+        [mission.dayNumber]: step
+      }
+    });
+  };
 
   const handleMouseUp = (e) => {
     const selection = window.getSelection();
@@ -499,12 +522,23 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [selectionMenu]);
 
-  const handleAddHighlight = (colorClass) => {
+const handleAddHighlight = (colorClass) => {
     if (selectionMenu && !highlights.find(h => h.text === selectionMenu.text)) {
       const newHighlight = { text: selectionMenu.text, colorClass };
       const updatedHighlights = [...highlights, newHighlight];
+      
       setHighlights(updatedHighlights);
       localStorage.setItem(highlightsKey, JSON.stringify(updatedHighlights));
+
+      // 🚀 HYBRID: Sync added highlight permanently to Firebase
+      const currentCloudHighlights = profile?.highlights || {};
+      updateCloudProgress({
+        highlights: {
+          ...currentCloudHighlights,
+          [mission.dayNumber]: updatedHighlights
+        }
+      });
+
       if (onHighlight) onHighlight(selectionMenu.text, currentChapter?.heading || `Day ${mission?.dayNumber} Reading`);
     }
     window.getSelection().removeAllRanges();
@@ -513,15 +547,36 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
 
   const handleRemoveHighlight = (textToRemove) => {
     const updatedHighlights = highlights.filter(h => h.text !== textToRemove);
+    
     setHighlights(updatedHighlights);
     localStorage.setItem(highlightsKey, JSON.stringify(updatedHighlights));
+
+    // 🚀 HYBRID: Sync highlight removal permanently to Firebase
+    const currentCloudHighlights = profile?.highlights || {};
+    updateCloudProgress({
+      highlights: {
+        ...currentCloudHighlights,
+        [mission.dayNumber]: updatedHighlights
+      }
+    });
   };
 
-  const handleSaveToVault = (text, type = 'line') => {
+const handleSaveToVault = (text, type = 'line') => {
     if (!savedVault.find(item => item.text === text)) {
       const updatedVault = [...savedVault, { text, type }];
+      
       setSavedVault(updatedVault);
       localStorage.setItem(vaultKey, JSON.stringify(updatedVault));
+      
+      // 🚀 HYBRID: Permanently sync this new favorite to Firebase
+      const currentVaultProgress = profile?.vault || {};
+      updateCloudProgress({
+        vault: {
+          ...currentVaultProgress,
+          [mission.dayNumber]: updatedVault
+        }
+      });
+
       if (onMemorize) {
         const heading = type === 'ai_note' ? `AI Note (Day ${mission?.dayNumber})` : (currentChapter?.heading || `Day ${mission?.dayNumber} Vault`);
         onMemorize(heading, text);
@@ -541,7 +596,6 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
     try {
       const context = `Module: ${mission.title}. Explain this specific point clearly for a PSC exam student in simple terms.`;
       const aiResponse = await askAITutor(queryText, context);
-
       setAiModal({ isOpen: true, query: queryText, response: aiResponse, loading: false });
     } catch (error) {
       setAiModal({ isOpen: true, query: queryText, response: `⚠️ ${error.message}`, loading: false });
@@ -552,8 +606,9 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
     if (activeStep > 0) {
       const prevStep = activeStep - 1;
       setActiveStep(prevStep);
-      localStorage.setItem(stepKey, prevStep.toString());
-      setMatchGameState({ selectedLeft: null, userPairs: {}, isSubmitted: false, allCorrect: false }); // Reset Match Game
+      localStorage.setItem(stepKey, prevStep.toString()); // Keep for instant backup
+      syncProgressToCloud(prevStep); // 🚀 Push to DB
+      setMatchGameState({ selectedLeft: null, userPairs: {}, isSubmitted: false, allCorrect: false });
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -561,8 +616,9 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
   const handleNextPage = () => {
     const nextStep = activeStep + 1;
     setActiveStep(nextStep);
-    localStorage.setItem(stepKey, nextStep.toString());
-    setMatchGameState({ selectedLeft: null, userPairs: {}, isSubmitted: false, allCorrect: false }); // Reset Match Game
+    localStorage.setItem(stepKey, nextStep.toString()); // Keep for instant backup
+    syncProgressToCloud(nextStep); // 🚀 Push to DB
+    setMatchGameState({ selectedLeft: null, userPairs: {}, isSubmitted: false, allCorrect: false });
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (nextStep >= chapters.length) onComplete();
   };
@@ -788,6 +844,7 @@ export default function LearningEngine({ mission, onComplete, onMemorize, onHigh
               onClick={() => {
                 setActiveStep(0);
                 localStorage.setItem(stepKey, '0');
+                syncProgressToCloud(0); // 🚀 Push reset to DB
                 setMatchGameState({ selectedLeft: null, userPairs: {}, isSubmitted: false, allCorrect: false });
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
