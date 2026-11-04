@@ -890,13 +890,13 @@ const handleSaveToVault = (text, type = 'line') => {
         </div>
       )}
 
-      {/* 🚀 Mount the Field Notes component here, passing activeStep so it flips pages! */}
+      {/* 🚀 Mount the Field Notes component here, passing activeStep and currentChapter! */}
       <FieldNotes 
         mission={mission} 
         isReadingFinished={isReadingFinished} 
-        activeStep={activeStep} 
+        activeStep={activeStep}
+        currentChapter={currentChapter} 
       />
-
     </div>
   );
 }

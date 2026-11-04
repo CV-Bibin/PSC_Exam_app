@@ -4,16 +4,18 @@ import { db } from '../../services/firebase';
 import { collection, onSnapshot, query, limit, orderBy } from 'firebase/firestore';
 import { 
   Compass, Flame, Award, Moon, Sun, LayoutDashboard, Activity, Target, 
-  MessageSquare, Bookmark, BrainCircuit, LogOut, ShieldAlert, FastForward, Swords
+  MessageSquare, Bookmark, BrainCircuit, LogOut, ShieldAlert, FastForward, Swords, Book
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
+import MasterNotebookModal from '../MasterNotebookModal';
 
 export default function Layout() {
   const { user, isAdmin, logout, completedExams, mistakes, completedDays } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isDark, setIsDark] = useState(true);
+  const [isMasterNotebookOpen, setIsMasterNotebookOpen] = useState(false);
   
   // 🚀 NOTIFICATION STATES (For Red Dots)
   const [hasNewExams, setHasNewExams] = useState(false);
@@ -98,10 +100,6 @@ export default function Layout() {
     }
   };
 
-  const toggleTheme = () => {
-    toast("Light Theme is currently in development for v2.0! Enjoy the tactical dark mode for now.", { icon: '🌙' });
-  };
-
   return (
     <div className="min-h-screen flex flex-col bg-civil-dark text-slate-200 selection:bg-brand-500 selection:text-black">
       <header className="sticky top-0 z-40 bg-civil-card/80 backdrop-blur-md border-b border-civil-border px-4 py-3">
@@ -143,8 +141,13 @@ export default function Layout() {
               <Activity size={16} />
             </button>
 
-            <button onClick={toggleTheme} className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 flex items-center justify-center text-slate-300 transition">
-              {isDark ? <Moon size={16} /> : <Sun size={16} />}
+           {/* 🚀 Master Notebook Button (Replaces Theme Toggle) */}
+            <button 
+              onClick={() => setIsMasterNotebookOpen(true)} 
+              className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-amber-500/20 hover:text-amber-400 border hover:border-amber-500/50 border-slate-700 flex items-center justify-center text-slate-300 transition shadow-sm"
+              title="Open Master Notebook"
+            >
+              <Book size={16} />
             </button>
 
             <button onClick={handleLogout} className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-rose-500/20 hover:text-rose-400 hover:border-rose-500/50 border border-slate-700 flex items-center justify-center text-slate-300 transition">
@@ -184,6 +187,13 @@ export default function Layout() {
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6">
         <Outlet />
       </main>
+
+      {/* 🚀 Mount the Modal here at the root level so it covers the whole screen! */}
+      <MasterNotebookModal 
+        isOpen={isMasterNotebookOpen} 
+        onClose={() => setIsMasterNotebookOpen(false)} 
+      />
+
     </div>
   );
 }

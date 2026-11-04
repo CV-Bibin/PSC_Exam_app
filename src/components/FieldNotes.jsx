@@ -7,7 +7,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 
-export default function FieldNotes({ mission, isReadingFinished, activeStep }) {
+export default function FieldNotes({ mission, isReadingFinished, activeStep, currentChapter }) {
   const { profile, updateCloudProgress } = useAuth();
   const editorRef = useRef(null);
   const timerRef = useRef(null); // 🚀 FIX 1: Used for debouncing typing speed
@@ -127,12 +127,17 @@ export default function FieldNotes({ mission, isReadingFinished, activeStep }) {
 
           <div className="ml-8 flex flex-col h-full relative">
             
-            {/* Header & Page Number */}
+         {/* Header & Page Number */}
             <div className="bg-amber-100/50 p-3 border-b-2 border-amber-200/60 flex justify-between items-center shrink-0">
-              <h3 className="text-amber-900 font-black text-sm uppercase tracking-widest flex items-center gap-2">
-                Slide {activeStep + 1} Notes
-              </h3>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col">
+                <h3 className="text-amber-900 font-black text-sm uppercase tracking-widest flex items-center gap-2">
+                  Day {mission?.dayNumber} • Slide {activeStep + 1}
+                </h3>
+                <span className="text-xs font-bold text-amber-700/80 truncate max-w-[220px]">
+                  {currentChapter?.heading || "Field Notes"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
                 <button onClick={handleSaveNotesToCloud} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold uppercase rounded-lg shadow-sm transition flex items-center gap-1">
                   <Save size={14} /> Sync
                 </button>
