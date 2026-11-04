@@ -3,6 +3,7 @@ import { askAITutor } from '../services/gemini';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '../context/AuthContext';
+import FieldNotes from './FieldNotes';
 
 import {
   CheckCircle2, Zap, AlertOctagon, FastForward, Highlighter,
@@ -888,6 +889,14 @@ const handleSaveToVault = (text, type = 'line') => {
           </div>
         </div>
       )}
+
+      {/* 🚀 Mount the Field Notes component here, passing activeStep so it flips pages! */}
+      <FieldNotes 
+        mission={mission} 
+        isReadingFinished={isReadingFinished} 
+        activeStep={activeStep} 
+      />
+
     </div>
   );
 }
