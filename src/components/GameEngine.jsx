@@ -573,10 +573,15 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
   }
 
  // --- SPOT THE TRAP LOGIC ---
+  // --- SPOT THE TRAP LOGIC ---
   if (gameType === 'trap') {
+    
+    // 🚀 THE FIX: Convert the AI's string output into a strict boolean
+    const targetBool = String(currentItem.is_true).toLowerCase() === 'true';
+
     const handleTrapClick = (guess) => {
       if (showResult) return;
-      const isCorrect = guess === currentItem.is_true;
+      const isCorrect = guess === targetBool; // Compare boolean to boolean!
       setSelectedAnswer(guess);
       setShowResult(true);
 
@@ -586,11 +591,10 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
       } else {
         setSessionLog(prev => ({ ...prev, incorrect: [...prev.incorrect, currentItem] }));
         
-        // 🚀 INSTANT SYNC: Create the mistake object and push to Firebase immediately
         const newMistake = {
           type: 'trap', 
           statement: currentItem.statement,
-          is_true: currentItem.is_true, 
+          is_true: targetBool, 
           catch: currentItem.catch, 
           streak: 0,
           dateAdded: new Date().toISOString()
@@ -616,7 +620,7 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
               onClick={() => handleTrapClick(true)}
               disabled={showResult}
               className={`p-6 rounded-2xl border-2 font-black text-xl transition ${showResult
-                ? currentItem.is_true
+                ? targetBool
                   ? 'bg-emerald-950/50 border-emerald-500 text-emerald-400'
                   : selectedAnswer === true ? 'bg-rose-950/50 border-rose-500 text-rose-400 opacity-50' : 'bg-slate-950 border-slate-800 text-slate-600'
                 : 'bg-slate-900 border-slate-700 hover:border-emerald-500 text-slate-200 hover:text-emerald-400'
@@ -628,7 +632,7 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
               onClick={() => handleTrapClick(false)}
               disabled={showResult}
               className={`p-6 rounded-2xl border-2 font-black text-xl transition ${showResult
-                ? !currentItem.is_true
+                ? !targetBool
                   ? 'bg-emerald-950/50 border-emerald-500 text-emerald-400'
                   : selectedAnswer === false ? 'bg-rose-950/50 border-rose-500 text-rose-400 opacity-50' : 'bg-slate-950 border-slate-800 text-slate-600'
                 : 'bg-slate-900 border-slate-700 hover:border-rose-500 text-slate-200 hover:text-rose-400'
@@ -640,10 +644,10 @@ export default function GameEngine({ gameType, curriculumData, onExit, onMarkCom
         </div>
 
         {showResult && (
-          <div className={`p-6 rounded-2xl animate-in slide-in-from-bottom-4 border ${selectedAnswer === currentItem.is_true ? 'bg-emerald-950/20 border-emerald-500/30' : 'bg-rose-950/20 border-rose-500/30'}`}>
-            <h4 className={`text-sm font-bold uppercase tracking-widest mb-2 flex items-center gap-2 ${selectedAnswer === currentItem.is_true ? 'text-emerald-400' : 'text-rose-400'}`}>
-              {selectedAnswer === currentItem.is_true ? <CheckCircle2 size={18} /> : <AlertOctagon size={18} />}
-              {selectedAnswer === currentItem.is_true ? 'Spot On!' : 'You fell for the trap!'}
+          <div className={`p-6 rounded-2xl animate-in slide-in-from-bottom-4 border ${selectedAnswer === targetBool ? 'bg-emerald-950/20 border-emerald-500/30' : 'bg-rose-950/20 border-rose-500/30'}`}>
+            <h4 className={`text-sm font-bold uppercase tracking-widest mb-2 flex items-center gap-2 ${selectedAnswer === targetBool ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {selectedAnswer === targetBool ? <CheckCircle2 size={18} /> : <AlertOctagon size={18} />}
+              {selectedAnswer === targetBool ? 'Spot On!' : 'You fell for the trap!'}
             </h4>
             <p className="text-slate-300 text-lg leading-relaxed"><strong className="text-amber-400">The Catch:</strong> {currentItem.catch}</p>
             <button onClick={handleNext} className="w-full mt-6 py-4 bg-slate-800 text-white font-black text-lg rounded-xl flex items-center justify-center gap-3 hover:bg-slate-700 transition">
