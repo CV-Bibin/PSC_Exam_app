@@ -137,36 +137,69 @@ const SlideRenderer = ({
       );
 
    case 'formula': {
-      // 🚀 AUTO-ESCAPE FIX: Replaces raw '%' with '\%' so LaTeX doesn't treat it as a hidden comment!
-      const safeEquation = (data.equation || '').replace(/\\?%/g, '\\%');
+      // 1. Force the equation into an array of strings (splitting by newline if the AI grouped them)
+      let rawEquations = [];
+      if (Array.isArray(data.equation)) {
+        rawEquations = data.equation;
+      } else if (typeof data.equation === 'string') {
+        // AI often separates multiple equations with newlines
+        rawEquations = data.equation.split('\n');
+      }
+
+      // Filter out any empty lines
+      rawEquations = rawEquations.filter(eq => eq.trim().length > 0);
 
       return (
         <div className="space-y-6">
           <ImageBlock />
-          <div className="bg-amber-950/20 border border-amber-500/30 rounded-3xl p-8 md:p-10 flex flex-col md:flex-row items-center gap-10 shadow-lg">
-            <div className="flex-1 w-full text-center bg-slate-900 py-8 px-4 rounded-3xl border border-amber-500/20 shadow-inner relative overflow-hidden flex flex-col justify-center min-h-[150px]">
+          
+          {/* 🚀 Changed to a Stacked Layout (removed md:flex-row) so formulas get 100% width */}
+          <div className="bg-amber-950/20 border border-amber-500/30 rounded-3xl p-6 md:p-10 flex flex-col gap-8 shadow-lg">
+            
+            {/* FORMULA CONTAINER: Now stretches all the way across the screen */}
+            <div className="w-full text-center bg-slate-900 py-8 px-4 rounded-3xl border border-amber-500/20 shadow-inner relative flex flex-col justify-center min-h-[120px] space-y-6">
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent opacity-50"></div>
-              <div className="text-amber-400 overflow-x-auto custom-scrollbar w-full text-sm sm:text-base lg:text-lg px-2">
-                {/* 🚀 Render using the new safe equation */}
-                <BlockMath math={safeEquation} />
-              </div>
+              
+              {/* 🚀 Render each equation independently to prevent them from smashing together */}
+              {rawEquations.map((eq, i) => {
+                // AUTO-ESCAPE FIXES:
+                // 1. Replace unescaped % with \%
+                // 2. Replace regular spaces with LaTeX spaces (\ ) so words don't mash together
+                const safeEq = eq
+                  .replace(/\\?%/g, '\\%') 
+                  .replace(/ /g, '\\ '); 
+
+               return (
+                  <div key={i} className="text-amber-400 w-full text-sm sm:text-base md:text-lg lg:text-xl px-2 flex justify-center">
+                    {/* 🚀 Removed overflow-x-auto and custom-scrollbar so it never scrolls */}
+                    <BlockMath math={safeEq} />
+                  </div>
+                );
+              })}
             </div>
-            <div className="flex-1 w-full space-y-4">
-              <h5 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+
+            {/* VARIABLES CONTAINER: Moved below the formulas and changed to a 2-column grid! */}
+            <div className="w-full">
+              <h5 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <Calculator size={16} /> Variables
               </h5>
-              {data.variables?.map((v, i) => (
-                <div key={i} className="flex items-center gap-3 text-slate-200 text-base bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
-                  <HighlightedText text={cleanMD(v)} highlights={highlights} onRemoveHighlight={onRemoveHighlight} />
-                </div>
-              ))}
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {data.variables?.map((v, i) => (
+                  <div key={i} className="flex items-center gap-3 text-slate-200 text-base bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
+                    <HighlightedText text={cleanMD(v)} highlights={highlights} onRemoveHighlight={onRemoveHighlight} />
+                  </div>
+                ))}
+              </div>
             </div>
+
           </div>
           {data.explanation && <p className="text-slate-300 text-base md:text-lg text-center mt-6 italic px-4">{data.explanation}</p>}
         </div>
       );
     }
+    
     case 'takeaways':
       return (
         <div className="space-y-6">
