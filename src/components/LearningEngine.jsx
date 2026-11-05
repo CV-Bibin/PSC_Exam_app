@@ -237,9 +237,22 @@ const SlideRenderer = ({
             {data.items?.map((item, i) => (
               <div key={i} className="bg-slate-900/80 border border-slate-700/80 p-6 rounded-3xl flex flex-col items-center text-center shadow-md hover:border-brand-400/50 transition group relative overflow-hidden">
                 <div className="absolute top-0 w-full h-1 bg-brand-500/20 group-hover:bg-brand-500/50 transition"></div>
-                <div className="w-14 h-14 bg-slate-800 text-brand-400 rounded-2xl flex items-center justify-center mb-5 group-hover:scale-110 transition shadow-inner">
-                  <LayoutGrid size={24} />
-                </div>
+                
+                {/* 🚀 RENDER IMAGE IF IT EXISTS, OTHERWISE SHOW ICON */}
+                {item.image_url ? (
+                  <div className="w-full mb-5 rounded-xl overflow-hidden border border-slate-700/50 bg-slate-950 flex justify-center shadow-inner relative group-hover:border-brand-500/30 transition">
+                    <img 
+                      src={item.image_url} 
+                      alt={item.title} 
+                      className="w-full h-40 object-cover opacity-90 group-hover:opacity-100 transition group-hover:scale-105 duration-500" 
+                    />
+                  </div>
+                ) : (
+                  <div className="w-14 h-14 bg-slate-800 text-brand-400 rounded-2xl flex items-center justify-center mb-5 group-hover:scale-110 transition shadow-inner">
+                    <LayoutGrid size={24} />
+                  </div>
+                )}
+                
                 <h5 className="font-bold text-white text-xl mb-3">{item.title}</h5>
                 <p className="text-base text-slate-400 leading-relaxed">
                   <HighlightedText text={cleanMD(item.desc)} highlights={highlights} onRemoveHighlight={onRemoveHighlight} />
@@ -249,7 +262,6 @@ const SlideRenderer = ({
           </div>
         </div>
       );
-
     case 'theory':
       return (
         <div className="space-y-6">

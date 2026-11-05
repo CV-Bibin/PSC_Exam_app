@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../services/firebase';
 import { collection, getDocs, doc, deleteDoc, updateDoc, query, orderBy, writeBatch } from 'firebase/firestore';
-import { Database, Users, Trash2, Edit3, AlertTriangle, X, Target, Save, Clock, BarChart3, Search, Award, Settings, BookOpen, ShieldAlert, Radio, Eye, EyeOff, Image as ImageIcon } from 'lucide-react';
+import { Database, Users, Trash2, Edit3, AlertTriangle, X, Target, Save, Clock, BarChart3, Search, Award, Settings, BookOpen, ShieldAlert, Radio, Eye, EyeOff, Image as ImageIcon, UploadCloud } from 'lucide-react'; // 🚀 ADDED UploadCloud here
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage'; // 🚀 ADD THIS NEW LINE
+
 import toast from 'react-hot-toast';
 
 export default function AdminDataManager() {
@@ -176,22 +178,52 @@ export default function AdminDataManager() {
     setEditModal({ ...editModal, item: updatedItem });
   };
 
+
+
   // 🚀 ULTIMATE FIX: Safely updates ANY deeply nested property without mutating state
   const handleDynamicUpdate = (slideIndex, pathArray, newValue) => {
     setEditModal(prev => {
       const updated = JSON.parse(JSON.stringify(prev)); // Deep clone prevents React state bugs
       let current = updated.item.curriculumData.study_material[slideIndex];
-      
+
       // Traverse down the exact path to the data
       for (let i = 0; i < pathArray.length - 1; i++) {
         current = current[pathArray[i]];
       }
       // Apply the new typed value
       current[pathArray[pathArray.length - 1]] = newValue;
-      
+
       return updated;
     });
   };
+
+
+// 🚀 NEW: Handles direct image uploads to Firebase Storage
+  const handleImageUpload = async (e, slideIndex, pathArray) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const toastId = toast.loading('Uploading image securely...');
+    try {
+      const storage = getStorage();
+      const storageRef = ref(storage, `course_images/${Date.now()}_${file.name}`);
+      
+      // Upload the file
+      await uploadBytes(storageRef, file);
+      
+      // Get the permanent URL
+      const downloadURL = await getDownloadURL(storageRef);
+
+      // Inject the new URL into the specific card using your dynamic updater
+      handleDynamicUpdate(slideIndex, pathArray, downloadURL);
+      
+      toast.success('Image uploaded and attached!', { id: toastId });
+    } catch (error) {
+      console.error("Upload error:", error);
+      toast.error('Failed to upload image. Check Firebase permissions.', { id: toastId });
+    }
+  };
+
 
   const handleSaveEdits = async () => {
     setSaveStatus('Saving...');
@@ -604,15 +636,15 @@ export default function AdminDataManager() {
             <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-950/50">
               {editModal.collectionName === 'daily_tasks' && (
                 <>
-          {/* 🚀 NEW: THE UNIVERSAL SLIDE EDITOR */}
+                  {/* 🚀 NEW: THE UNIVERSAL SLIDE EDITOR */}
                   {editModalTab === 'slides' && editModal.item.curriculumData?.study_material && (
                     <div className="space-y-6">
                       <h4 className="text-sm font-black text-sky-400 uppercase tracking-widest flex items-center gap-2">
                         <BookOpen size={18} /> Study Material Slides
                       </h4>
-                      
+
                       {editModal.item.curriculumData.study_material.map((slide, idx) => {
-                        
+
                         // 🚀 THE MAGIC: Recursively builds an editor UI for ANY schema the AI invents!
                         const renderDynamicFields = (data, basePath = []) => {
                           if (!data || typeof data !== 'object') return null;
@@ -630,14 +662,14 @@ export default function AdminDataManager() {
                                 <div key={key} className="mt-4">
                                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">{key.replace(/_/g, ' ')}</label>
                                   {isShort ? (
-                                    <input 
+                                    <input
                                       type="text"
                                       value={value}
                                       onChange={(e) => handleDynamicUpdate(idx, [...basePath, key], e.target.value)}
                                       className="w-full bg-slate-900 border border-slate-700 text-brand-400 font-bold text-sm rounded-lg px-3 py-2.5 focus:border-brand-500 outline-none transition"
                                     />
                                   ) : (
-                                    <textarea 
+                                    <textarea
                                       rows={3}
                                       value={value}
                                       onChange={(e) => handleDynamicUpdate(idx, [...basePath, key], e.target.value)}
@@ -657,7 +689,7 @@ export default function AdminDataManager() {
                                 return (
                                   <div key={key} className="mt-4">
                                     <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">{key.replace(/_/g, ' ')} (List)</label>
-                                    <textarea 
+                                    <textarea
                                       rows={4}
                                       value={value.join('\n\n')}
                                       onChange={(e) => handleDynamicUpdate(idx, [...basePath, key], e.target.value.split('\n\n'))}
@@ -666,17 +698,58 @@ export default function AdminDataManager() {
                                   </div>
                                 );
                               }
-
-                              // Array of Objects (The classic GRID or ITEMS format)
+                              // 2b. Array of Objects (The classic GRID or ITEMS format)
                               if (typeof value[0] === 'object') {
                                 return (
                                   <div key={key} className="mt-5 border-t border-slate-800/50 pt-4">
                                     <label className="block text-xs font-black text-amber-400 uppercase tracking-widest mb-3">{key.replace(/_/g, ' ')}</label>
                                     <div className="space-y-4">
                                       {value.map((item, arrIdx) => (
-                                        <div key={arrIdx} className="bg-slate-950/60 p-4 rounded-xl border border-slate-700/50 relative ml-3 border-l-4 border-l-brand-500/50 shadow-inner">
+                                        <div key={arrIdx} className="bg-slate-950/60 p-4 rounded-xl border border-slate-700/50 relative ml-3 border-l-4 border-l-brand-500/50 shadow-inner flex flex-col gap-4">
                                           <span className="absolute -left-[14px] -top-2 bg-slate-800 text-slate-400 w-6 h-6 flex items-center justify-center rounded-full text-[10px] font-black border border-slate-700 shadow-md">{arrIdx + 1}</span>
-                                          {renderDynamicFields(item, [...basePath, key, arrIdx])}
+
+                                          {/* Render the normal AI fields (title, desc, etc.) */}
+                                          <div className="flex-1">
+                                            {renderDynamicFields(item, [...basePath, key, arrIdx])}
+                                          </div>
+
+                                         {/* 🚀 UPGRADED: URL INPUT + BROWSER UPLOAD BUTTON */}
+                                        <div className="pt-4 border-t border-slate-800/50 mt-4">
+                                          <label className="block text-[10px] font-bold text-sky-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                                            <ImageIcon size={14} /> Card Image (URL or Upload)
+                                          </label>
+                                          
+                                          <div className="flex gap-2">
+                                            {/* URL Input */}
+                                            <input 
+                                              type="text"
+                                              placeholder="Paste image URL..."
+                                              value={item.image_url || ''}
+                                              onChange={(e) => handleDynamicUpdate(idx, [...basePath, key, arrIdx, 'image_url'], e.target.value)}
+                                              className="flex-1 bg-slate-900 border border-sky-500/30 text-sky-400 font-medium text-sm rounded-lg px-3 py-2.5 focus:border-sky-500 outline-none transition"
+                                            />
+                                            
+                                            {/* 🚀 File Upload Button */}
+                                            <label className="cursor-pointer bg-sky-900/50 hover:bg-sky-800 text-sky-400 border border-sky-500/50 px-4 py-2.5 rounded-lg font-bold text-sm transition flex items-center gap-2 shrink-0 shadow-sm active:scale-95">
+                                              <UploadCloud size={16} />
+                                              <span className="hidden sm:inline">Upload</span>
+                                              <input 
+                                                type="file" 
+                                                accept="image/*" 
+                                                className="hidden" 
+                                                onChange={(e) => handleImageUpload(e, idx, [...basePath, key, arrIdx, 'image_url'])} 
+                                              />
+                                            </label>
+                                          </div>
+
+                                          {/* Live Preview */}
+                                          {item.image_url && (
+                                            <div className="mt-3 w-full h-24 rounded-lg overflow-hidden border border-slate-700 bg-slate-950 flex items-center justify-center">
+                                              <img src={item.image_url} alt="Preview" className="h-full w-full object-cover opacity-90 hover:opacity-100 transition" />
+                                            </div>
+                                          )}
+                                        </div>
+
                                         </div>
                                       ))}
                                     </div>
@@ -706,18 +779,18 @@ export default function AdminDataManager() {
                                 Slide {idx + 1} - {slide.type || 'Unknown'}
                               </span>
                             </div>
-                            
+
                             {/* Always pin the Heading natively to the top */}
                             <div>
                               <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Heading</label>
-                              <input 
+                              <input
                                 type="text"
                                 value={slide.heading || slide.title || ''}
                                 onChange={(e) => handleUpdateSlide(idx, slide.heading !== undefined ? 'heading' : 'title', e.target.value)}
                                 className="w-full bg-slate-950 border border-slate-700 text-white font-bold text-sm rounded-lg px-3 py-2.5 focus:border-brand-500 outline-none transition shadow-inner"
                               />
                             </div>
-                            
+
                             {/* Let the Universal Renderer handle every other field */}
                             <div className="pt-2">
                               {renderDynamicFields(slide)}

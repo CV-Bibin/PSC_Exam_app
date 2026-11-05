@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { History, CheckCircle2, RotateCcw, Target, AlertOctagon, BrainCircuit, Lock, ChevronDown, Lightbulb } from 'lucide-react';
+import { History, CheckCircle2, RotateCcw, Target, AlertOctagon, BrainCircuit, Lock, ChevronDown, Lightbulb, Clock } from 'lucide-react';
 import GameEngine from '../components/GameEngine';
 import { useAuth } from '../context/AuthContext';
 
@@ -7,12 +7,11 @@ export default function MistakeLog() {
   const [mistakes, setMistakes] = useState([]);
   const [isDrillActive, setIsDrillActive] = useState(false);
   const [drillCurriculum, setDrillCurriculum] = useState(null); 
-  const [nextAvailableDate, setNextAvailableDate] = useState(null);
   
-  // 🚀 UI Optimization
+  // UI Optimization
   const [visibleCount, setVisibleCount] = useState(15);
 
-  // 🚀 Pull cloud data directly
+  // Pull cloud data directly
   const { mistakes: cloudMistakes, profile, updateCloudProgress } = useAuth();
 
   useEffect(() => {
@@ -26,23 +25,37 @@ export default function MistakeLog() {
       
       setMistakes(formatted);
     }
+  }, [cloudMistakes]);
 
-    // 2. Check 7-Day Cooldown Lock from Cloud Profile
-    const lastDrillTime = profile?.lastRemedialDrill;
-    if (lastDrillTime) {
-      const nextDate = new Date(new Date(lastDrillTime).getTime() + (7 * 24 * 60 * 60 * 1000));
-      if (new Date() < nextDate) {
-        setNextAvailableDate(nextDate);
+  // 🚀 THE NEW SPACED REPETITION ENGINE (Per-Question Cooldown)
+  const now = new Date().getTime();
+  const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+  const processedMistakes = mistakes.filter(m => m.streak < 3).map(m => {
+    // Find the date this mistake was added or last attempted
+    const referenceDate = m.lastAttempted || m.timestamp || m.date || m.createdAt;
+    
+    let isLocked = false;
+    let daysLeft = 0;
+    
+    if (referenceDate) {
+      const timeSinceAdded = now - new Date(referenceDate).getTime();
+      if (timeSinceAdded < SEVEN_DAYS_MS) {
+        isLocked = true;
+        daysLeft = Math.ceil((SEVEN_DAYS_MS - timeSinceAdded) / (1000 * 60 * 60 * 24));
       }
     }
-  }, [cloudMistakes, profile]);
+    
+    return { ...m, isLocked, daysLeft };
+  });
 
-  const activeMistakes = mistakes.filter(m => m.streak < 3);
+  const readyMistakes = processedMistakes.filter(m => !m.isLocked);
+  const lockedMistakes = processedMistakes.filter(m => m.isLocked);
   const masteredCount = profile?.masteredCount || 0;
 
-  // 🚀 THE SHUFFLE ENGINE: Randomizes Questions AND Options!
+  // 🚀 SHUFFLE ENGINE: Only pulls from "Ready" questions
   const launchShuffledDrill = () => {
-    let preparedQuestions = activeMistakes.map(m => {
+    let preparedQuestions = readyMistakes.map(m => {
       const isTrap = m.type === 'trap' || !m.options || m.options.length === 0;
       let finalOptions = [];
       let finalCorrect = "";
@@ -75,7 +88,7 @@ export default function MistakeLog() {
       [preparedQuestions[i], preparedQuestions[j]] = [preparedQuestions[j], preparedQuestions[i]];
     }
 
-    // 🚀 FATIGUE CAP: Limit to 20 random questions per drill max!
+    // FATIGUE CAP: Limit to 20 random questions per drill max
     const cappedQuestions = preparedQuestions.slice(0, 20);
 
     setDrillCurriculum({
@@ -92,37 +105,42 @@ export default function MistakeLog() {
 
     let newlyMastered = 0;
 
-    // Update Streaks based on what was right/wrong
+    // Update Streaks and Timestamps based on what was right/wrong
     let updatedMistakes = mistakes.map(mistake => {
       const mistakeText = mistake.question || mistake.statement;
       const gotCorrect = sessionLog.correct.some(q => q.question === mistakeText);
       const gotWrong = sessionLog.incorrect.some(q => q.question === mistakeText);
 
-      if (gotCorrect) {
-        const newStreak = (mistake.streak || 0) + 1;
-        if (newStreak >= 3) newlyMastered++;
-        return { ...mistake, streak: newStreak };
-      } else if (gotWrong) {
-        return { ...mistake, streak: 0 }; // Reset streak to 0 if they fail
+      // 🚀 If they answered it in this drill, update its specific timestamp to lock it for 7 days
+      if (gotCorrect || gotWrong) {
+        let newStreak = mistake.streak || 0;
+        
+        if (gotCorrect) {
+          newStreak += 1;
+          if (newStreak >= 3) newlyMastered++;
+        } else {
+          newStreak = 0; // Reset streak to 0 if they fail
+        }
+
+        return { 
+          ...mistake, 
+          streak: newStreak, 
+          lastAttempted: new Date().toISOString() // 🚀 This triggers the 7-day per-question cooldown!
+        };
       }
+      
       return mistake;
     });
 
     // PERMANENT DELETION: Instantly remove anything with 3 streaks
-    updatedMistakes = updatedMistakes.filter(m => m.streak < 3);
+    updatedMistakes = updatedMistakes.filter(m => (m.streak || 0) < 3);
 
-    // Secure the 7-day lock
-    const now = new Date();
-    const nextDate = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
-    
-    // Update local storage and UI instantly (no page reload needed)
+    // Update local UI instantly
     setMistakes(updatedMistakes);
-    setNextAvailableDate(nextDate); 
     
-  // 🚀 FIREBASE SYNC: Save all changes directly to the cloud
+    // FIREBASE SYNC: Save all changes directly to the cloud
     updateCloudProgress({
       mistakes: updatedMistakes.reverse(), // Keep chronological order in DB
-      lastRemedialDrill: now.toISOString(),
       masteredCount: parseInt(masteredCount) + newlyMastered
     });
   };
@@ -148,8 +166,6 @@ export default function MistakeLog() {
     );
   }
 
-  const daysUntilNextDrill = nextAvailableDate ? Math.max(1, Math.ceil((nextAvailableDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))) : 0;
-
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500 pb-16">
       
@@ -163,48 +179,67 @@ export default function MistakeLog() {
               </div>
               <h1 className="text-4xl md:text-5xl font-black text-white tracking-tight">Mistake Log & Mastery</h1>
             </div>
-            <p className="text-base text-slate-400 font-medium ml-1 max-w-lg">Spaced repetition engine. Review your errors below. Clear a mistake 3 consecutive times in the Remedial Drill to permanently archive it.</p>
+            <p className="text-base text-slate-400 font-medium ml-1 max-w-lg">
+              Spaced repetition engine. Review your errors below. Clear a mistake 3 consecutive times in the Remedial Drill to permanently archive it. New errors lock for 7 days.
+            </p>
           </div>
           
-          <div className="flex gap-4">
-            <div className="bg-slate-950/80 p-4 rounded-2xl border border-slate-800 text-center shadow-inner">
-              <span className="block text-2xl font-black text-rose-400">{activeMistakes.length}</span>
+          {/* 🚀 UPGRADED: 3 Stat Blocks to show Ready vs Locked */}
+          <div className="flex flex-wrap gap-4">
+            <div className="bg-slate-950/80 p-4 rounded-2xl border border-slate-800 text-center shadow-inner min-w-[100px]">
+              <span className="block text-2xl font-black text-rose-400">{processedMistakes.length}</span>
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Active Errors</span>
             </div>
-            <div className="bg-emerald-950/20 p-4 rounded-2xl border border-emerald-900/50 text-center shadow-inner">
+            <div className="bg-sky-950/20 p-4 rounded-2xl border border-sky-900/50 text-center shadow-inner min-w-[100px]">
+              <span className="block text-2xl font-black text-sky-400">{readyMistakes.length}</span>
+              <span className="text-[10px] font-black text-sky-600/80 uppercase tracking-widest">Ready to Drill</span>
+            </div>
+            <div className="bg-emerald-950/20 p-4 rounded-2xl border border-emerald-900/50 text-center shadow-inner min-w-[100px]">
               <span className="block text-2xl font-black text-emerald-400">{masteredCount}</span>
-              <span className="text-[10px] font-black text-emerald-600/80 uppercase tracking-widest">Mastered All-Time</span>
+              <span className="text-[10px] font-black text-emerald-600/80 uppercase tracking-widest">Mastered</span>
             </div>
           </div>
         </div>
       </div>
 
-      {activeMistakes.length > 0 ? (
+      {processedMistakes.length > 0 ? (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 px-2">
             <h3 className="text-xl font-black text-white flex items-center gap-2"><Target className="text-amber-400" /> Pending Remediation</h3>
             
-            {/* WEEKLY LOCKOUT UI */}
-            {nextAvailableDate ? (
-              <button disabled className="px-6 py-3 bg-slate-950 border border-slate-800 text-slate-500 font-black rounded-xl transition flex items-center gap-2 cursor-not-allowed">
-                <Lock size={18} /> Locked: {daysUntilNextDrill} Day{daysUntilNextDrill > 1 ? 's' : ''} Remaining
+            {/* 🚀 NEW: Dynamic Per-Question Launch Button */}
+            {readyMistakes.length > 0 ? (
+              <button onClick={launchShuffledDrill} className="px-6 py-3 bg-brand-500 hover:bg-brand-400 text-slate-950 font-black rounded-xl shadow-[0_0_20px_rgba(245,158,11,0.3)] transition active:scale-95 flex items-center gap-2">
+                <BrainCircuit size={18} /> Launch Drill ({readyMistakes.length} Ready)
               </button>
             ) : (
-              <button onClick={launchShuffledDrill} className="px-6 py-3 bg-brand-500 hover:bg-brand-400 text-slate-950 font-black rounded-xl shadow-[0_0_20px_rgba(245,158,11,0.3)] transition active:scale-95 flex items-center gap-2">
-                <BrainCircuit size={18} /> Launch Weekly Drill
+              <button disabled className="px-6 py-3 bg-slate-950 border border-slate-800 text-slate-500 font-black rounded-xl transition flex items-center gap-2 cursor-not-allowed">
+                <Lock size={18} /> All {lockedMistakes.length} Mistakes in Cooldown
               </button>
             )}
           </div>
 
           <div className="grid grid-cols-1 gap-4">
-            {activeMistakes.slice(0, visibleCount).map((mistake, idx) => (
-              <div key={idx} className="bg-slate-900/60 backdrop-blur-md border border-slate-700/50 p-6 rounded-3xl flex flex-col md:flex-row justify-between gap-6 group hover:border-slate-500 transition-colors">
+            {processedMistakes.slice(0, visibleCount).map((mistake, idx) => (
+              <div key={idx} className={`bg-slate-900/60 backdrop-blur-md border p-6 rounded-3xl flex flex-col md:flex-row justify-between gap-6 group transition-colors ${mistake.isLocked ? 'border-slate-800 opacity-80' : 'border-slate-700/50 hover:border-slate-500'}`}>
                 <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-3">
+                  <div className="flex items-center flex-wrap gap-3 mb-3">
                     <span className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border ${mistake.type === 'trap' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
                       {mistake.type === 'trap' ? 'Spot The Trap Mistake' : 'Combat Mistake'}
                     </span>
+                    
+                    {/* 🚀 NEW: Cooldown Status Badge */}
+                    {mistake.isLocked ? (
+                      <span className="px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1">
+                        <Lock size={12} /> Cooling Down ({mistake.daysLeft}d left)
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-widest bg-sky-500/10 text-sky-400 border border-sky-500/20 flex items-center gap-1">
+                        <Clock size={12} /> Ready to Drill
+                      </span>
+                    )}
                   </div>
+                  
                   <h4 className="text-lg font-bold text-white mb-4 leading-relaxed">{mistake.question || mistake.statement}</h4>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -213,7 +248,6 @@ export default function MistakeLog() {
                       <p className="text-emerald-100 font-semibold">{mistake.correct_answer}</p>
                     </div>
 
-                    {/* 🚀 NEW: Added the Explanation Box so they can study */}
                     {mistake.explanation && (
                       <div className="bg-slate-950/50 border border-slate-800 p-4 rounded-xl">
                         <span className="text-[10px] font-black text-sky-500 uppercase tracking-widest block mb-1 flex items-center gap-1"><Lightbulb size={12}/> Context:</span>
@@ -242,8 +276,8 @@ export default function MistakeLog() {
             ))}
           </div>
 
-          {/* 🚀 NEW: Load More Pagination */}
-          {visibleCount < activeMistakes.length && (
+          {/* Load More Pagination */}
+          {visibleCount < processedMistakes.length && (
             <div className="flex justify-center pt-4">
               <button 
                 onClick={() => setVisibleCount(prev => prev + 15)}
