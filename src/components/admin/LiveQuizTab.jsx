@@ -168,7 +168,7 @@ export default function LiveQuizTab() {
   const nowIso = new Date().toISOString();
   const activeExams = deployedExams.filter(e => e.scheduledEndTime > nowIso);
   const pastExams = deployedExams.filter(e => e.scheduledEndTime <= nowIso);
-  const generatorSourceExams = [...pastExams, ...weeklyMocks];
+ const generatorSourceExams = [...deployedExams, ...weeklyMocks];
 
   // 🚀 Helper Function: Safely count questions regardless of schema
   const getQuestionCount = (exam) => {
@@ -341,7 +341,7 @@ export default function LiveQuizTab() {
               </div>
 
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 max-h-60 overflow-y-auto custom-scrollbar">
-                <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3 border-b border-slate-800 pb-2">Select Expired Source Exams</p>
+                <p className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3 border-b border-slate-800 pb-2">Select Source Exams</p>
                 {generatorSourceExams.length === 0 ? (
                   <p className="text-sm text-slate-500">No past exams available to pull from.</p>
                 ) : (
