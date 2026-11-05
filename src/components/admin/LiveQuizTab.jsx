@@ -124,7 +124,7 @@ export default function LiveQuizTab() {
     try {
       const parsed = JSON.parse(bulkJson);
       if (!Array.isArray(parsed)) throw new Error("JSON must be an array.");
-      const isValid = parsed.every(q => q.question && Array.isArray(q.options) && q.options.length === 4 && q.correct_answer);
+      const isValid = parsed.every(q => q.question && Array.isArray(q.options) && q.options.length >= 2 && q.correct_answer);
       if (!isValid) throw new Error("Invalid schema format.");
       setQuestions([...questions, ...parsed]);
       setBulkJson('');
