@@ -77,23 +77,25 @@ export const extractTextFromPPTX = async (file) => {
 // --- ART DIRECTOR & UI ARCHITECT GENERATOR ---
 export const extractSyllabusData = async (fileData, isText = false) => {
 
- const prompt = `You are an elite Kerala PSC Civil Engineering Master Tutor and Infographic Designer. 
-Your job is to transform raw technical text into a structured JSON payload that powers a highly visual React application.
+const prompt = `You are an elite, highly rigorous Kerala PSC Civil Engineering Master Tutor. 
+Your objective is LOSSLESS ENHANCEMENT. You must transform raw, messy notes into a structured, highly visual JSON payload for a React application. You are expected to generate PSC tips, memory hooks, and clear explanations, BUT YOU MUST NOT OMIT ANY SOURCE DATA.
 
-CRITICAL DIRECTIVES:
-1. ABSOLUTE ZERO FACT LOSS: Retain EVERY SINGLE POINT, definition, sub-type, classification, and explanation. DO NOT SUMMARIZE.
-2. UNLIMITED SLIDES & HIERARCHY FLOW: Create as many slides as necessary. CRITICAL RULE: If explaining classifications (e.g., Types of Surveys), you MUST first create a 'grid' slide listing all the types. ONLY AFTER the grid slide should you create detailed 'theory' or 'takeaways' slides for each specific type.
-3. THE UI COMPONENTS:
+CRITICAL ENGINEERING DIRECTIVES (FOLLOW STRICTLY):
+1. ZERO OMISSION RULE: You have full creative freedom to organize the text, explain concepts, and add PSC-specific tips. However, you are STRICTLY FORBIDDEN from deleting or omitting any raw facts. Every single line, IS Code, numerical tolerance, dimension, ratio, formula, and classification mentioned in the input MUST be preserved and integrated into the slides.
+2. THE SPLIT-SLIDE MANDATE: Do not cram. If the raw text contains a long list of 8 properties, do not compress them into 4. You MUST create multiple consecutive slides (e.g., "Properties of Cement - Part 1", "Properties of Cement - Part 2") to preserve all 8 properties exactly as provided.
+3. AGGRESSIVE KEY-DATA USE: You MUST aggressively use the 'key_data' array on every single slide to isolate numerical limits, IS Codes, and formulas so they are visually highlighted to the student. If a slide mentions a number, it belongs in 'key_data'.
+4. HIERARCHY & FLOW: When explaining classifications (e.g., "Types of Bonds"), you MUST first create a 'grid' slide listing all types. Only AFTER the grid slide should you create detailed 'theory' or 'takeaways' slides for each specific type.
+5. THE UI COMPONENTS:
    - "definition": For core concepts. 'content_data' must have 'term' and 'explanation'.
-   - "comparison": For differences. 'content_data' must have 'left_title', 'left_points' (array of strings), 'right_title', 'right_points' (array of strings).
+   - "comparison": For exact differences. 'content_data' must have 'left_title', 'left_points', 'right_title', 'right_points'.
    - "formula": For math/equations. 'content_data' must have 'equation', 'variables' (array of strings), 'explanation'.
-   - "takeaways": For numbered lists, objectives, or rules. 'content_data' must have 'points' (array of OBJECTS with 'term' (short bold prefix/sub-heading, or null) and 'desc' (the main text)).
+   - "takeaways": For numbered lists, properties, or rules. 'content_data' must have 'points' (array of OBJECTS with 'term' and 'desc').
    - "grid": For classifications/types. 'content_data' must have 'items' (array of objects with 'title' and 'desc').
-   - "theory": For standard reading. 'content_data' must have 'paragraphs' (array of strings).
-   - "quick_quiz": Inject 1-2 of these between complex slides. 'content_data' must have 'question', 'options', 'correct', 'explanation'.
-   - "interactive_match": Inject 1 of these per topic. 'content_data' must have 'instructions' and 'pairs' (array of left/right objects).
-4. VISUAL ART DIRECTOR (IMAGES): Only request an image if a diagram is ABSOLUTELY NECESSARY for the student to understand a complex spatial or technical concept (e.g., Earth's curvature, specific instrument parts). Do not force an image quota. If the topic is purely theoretical and easily understood through our UI text/icons, set "is_needed": false for ALL slides. However, NEVER skip an image if a visual is genuinely required for exam comprehension.
-5. STRICT MCQ ROUTING: Extract all raw questions into "quizzes". Generate 3-5 brand new, highly difficult questions into "grand_exam_quizzes".
+   - "theory": For standard reading. 'content_data' must have 'paragraphs'.
+   - "quick_quiz": Inject 1-2 between complex slides. 'content_data' must have 'question', 'options', 'correct', 'explanation'.
+   - "interactive_match": Inject 1 per topic. 'content_data' must have 'instructions' and 'pairs' (array of left/right objects).
+6. VISUAL ART DIRECTOR: Set "is_needed": false for 80% of slides. ONLY request an image (art_prompt) if a spatial diagram is absolutely mandatory (e.g., cross-section of a dam). 
+7. STRICT MCQ ROUTING: Extract all raw questions into "quizzes". Generate 3-5 brand new, highly difficult questions into "grand_exam_quizzes".
 
 Generate a STRICT JSON object matching exactly this schema:
 {
@@ -103,13 +105,13 @@ Generate a STRICT JSON object matching exactly this schema:
       "type": "string (MUST BE: 'definition', 'comparison', 'formula', 'takeaways', 'grid', 'theory', 'quick_quiz', or 'interactive_match')",
       "badge": "string (Short tag e.g., '⭐ Important', '📖 Definition', '⚠️ Trap')",
       "context_breadcrumb": "string (CRITICAL: The parent topic this slide belongs to. e.g., 'Classification of Surveys > Based on Instruments')",
-      "heading": "string (Punchy slide title)",
+      "heading": "string (Punchy slide title, append 'Part 1' etc. if splitting)",
       "image_request": {
         "is_needed": boolean,
         "art_prompt": "string (Detailed visual description ONLY if absolutely necessary, else null)"
       },
       "content_data": { 
-        "//": "Structure this object exactly as requested in Directive 3 based on the 'type'" 
+        "//": "Structure this object exactly as requested in Directive 5 based on the 'type'" 
       },
       "key_data": ["string (Extract specific numerical thresholds, codes, or dimensions)"],
       "psc_trap": "string (Clear trap alert with the exact trap trick Kerala PSC uses)"
@@ -133,12 +135,13 @@ Generate a STRICT JSON object matching exactly this schema:
     : [prompt, { inlineData: { data: fileData, mimeType: "application/pdf" } }];
 
   // Keep your existing Cascading Fallback Router logic here
+  // Cascading Fallback Router
   const modelsToTry = [
+    'gemini-3.8-flash',
     'gemini-3.6-flash',
     'gemini-3.5-flash-lite',
     'gemini-3.1-flash-lite'
   ];
-
   let delay = 3000;
 
   for (let i = 0; i < modelsToTry.length; i++) {
