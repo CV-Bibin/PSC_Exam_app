@@ -173,8 +173,9 @@ export default function ExamArena() {
     return exams.reverse(); 
   }, [dailyTasks, completedSlides]);
 
-  // 🚀 EXAM STATUS & TIME LOCKS
+// ==========================================
 // 🚀 EXAM STATUS & TIME LOCKS
+// ==========================================
   const getExamStatus = (exam) => {
     // Read directly from Firebase Context instead of local storage
     const attemptsMade = (globalScores || []).filter(score => score.examId === exam.id).length;
@@ -191,12 +192,7 @@ export default function ExamArena() {
     }
 
     if (totalAttempts === 0) {
-      if (exam.type === 'weekly' && !isSunday) {
-        return {
-          id: 'time_locked', label: 'Unlocks on Sunday', color: 'text-slate-500 bg-slate-950 border-slate-800',
-          icon: Lock, btnText: 'Time Locked', btnClass: 'bg-slate-950 border border-slate-800 text-slate-600 cursor-not-allowed'
-        };
-      }
+      // 🚀 FIXED: Removed the strict `!isSunday` check so exams unlocked on Sunday remain permanently accessible on Monday and onward!
       if (exam.type === 'monthly' && !isFirstOfMonth) {
         return {
           id: 'time_locked', label: 'Unlocks on 1st', color: 'text-slate-500 bg-slate-950 border-slate-800',

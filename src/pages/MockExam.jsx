@@ -42,8 +42,13 @@ export default function MockExam() {
 
         snap.docs.forEach(doc => {
           const data = doc.data();
-          if (daysToTest.includes(data.dayNumber)) {
+         if (daysToTest.includes(data.dayNumber)) {
+            // 🚀 UPGRADED: Scoops up ALL questions from ALL available arrays!
+            if (data.curriculumData?.special_quizzes) allMCQs.push(...data.curriculumData.special_quizzes);
+            if (data.curriculumData?.grand_exam_quizzes) allMCQs.push(...data.curriculumData.grand_exam_quizzes);
             if (data.curriculumData?.quizzes) allMCQs.push(...data.curriculumData.quizzes);
+            
+            if (data.curriculumData?.grand_exam_traps) allTraps.push(...data.curriculumData.grand_exam_traps);
             if (data.curriculumData?.games?.spot_the_trap) allTraps.push(...data.curriculumData.games.spot_the_trap);
           }
         });

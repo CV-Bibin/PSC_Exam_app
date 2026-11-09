@@ -75,17 +75,21 @@ export default function GrandMockTab() {
           const data = doc.data();
           if (data.moduleNumber === selectedTopic.moduleNumber) {
             // 🚀 UPGRADED: Prioritizes JSON uploads (special_quizzes) first!
+           // 🚀 UPGRADED: Scoops up ALL questions from ALL available arrays!
             if (data.curriculumData?.special_quizzes?.length > 0) {
               grandMCQs.push(...data.curriculumData.special_quizzes);
-            } else if (data.curriculumData?.grand_exam_quizzes?.length > 0) {
+            }
+            if (data.curriculumData?.grand_exam_quizzes?.length > 0) {
               grandMCQs.push(...data.curriculumData.grand_exam_quizzes);
-            } else if (data.curriculumData?.quizzes?.length > 0) {
+            }
+            if (data.curriculumData?.quizzes?.length > 0) {
               grandMCQs.push(...data.curriculumData.quizzes);
             }
 
             if (data.curriculumData?.grand_exam_traps?.length > 0) {
               grandTraps.push(...data.curriculumData.grand_exam_traps);
-            } else if (data.curriculumData?.games?.spot_the_trap?.length > 0) {
+            }
+            if (data.curriculumData?.games?.spot_the_trap?.length > 0) {
               grandTraps.push(...data.curriculumData.games.spot_the_trap);
             }
           }
